@@ -743,79 +743,104 @@ public class HiveTestCluster {
 
             exaremeGraphSimpler.discoverCurrentLeaves();
 
-        /*outputFile.println("=======================Accessing QueryPlan Information===========================");
+        outputFile.println("\t=======================Accessing QueryPlan Information===========================");
+        outputFile.flush();
         HashMap<String, String> idTableNameMap = queryPlan.getIdToTableNameMap();
         if(idTableNameMap != null) {
-            outputFile.println("\nPrinting IdToTableName HashMap...");
+            outputFile.println("\t\tPrinting IdToTableName HashMap...");
+            outputFile.flush();
             for (HashMap.Entry<String, String> entry : idTableNameMap.entrySet()) {
-                outputFile.println(entry.getKey() + " : " + entry.getValue());
+                outputFile.println("\t\t\t"+entry.getKey() + " : " + entry.getValue());
+                outputFile.flush();
             }
         }
-        outputFile.println("\nTo String: "+queryPlan.toString());
-        outputFile.println("\nOperationName: "+queryPlan.getOperationName());
+        //outputFile.println("\nTo String: "+queryPlan.toString());
+        outputFile.println("\t\tOperationName: "+queryPlan.getOperationName());
+        outputFile.flush();
         ColumnAccessInfo columnAccessInfo = queryPlan.getColumnAccessInfo();
         if(columnAccessInfo != null) {
-            outputFile.println("\nColumnAccessInfo to String: " + columnAccessInfo);
+            outputFile.println("\t\tColumnAccessInfo to String: " + columnAccessInfo);
+            outputFile.flush();
             Map<String, List<String>> columnAccessMap = columnAccessInfo.getTableToColumnAccessMap();
             if(columnAccessMap != null) {
-                outputFile.println("\nPrinting columnAccessInfo Map...");
+                outputFile.println("\t\tPrinting columnAccessInfo Map...");
+                outputFile.flush();
                 for (Map.Entry<String, List<String>> entry : columnAccessMap.entrySet()) {
-                    outputFile.println("\nEntry: " + entry.getKey());
+                    outputFile.println("\t\t\tEntry: " + entry.getKey());
+                    outputFile.flush();
                     List<String> list = entry.getValue();
                     if(list != null)
                         for (String s : list) {
-                            outputFile.println("\tValue: " + s);
+                            outputFile.println("\t\t\t\tValue: " + s);
+                            outputFile.flush();
                         }
                 }
             }
         }
         Map<String, Map<String, Long>> mapCounters = queryPlan.getCounters();
         if(mapCounters != null) {
-            outputFile.println("\nPrinting map of Counters...");
+            outputFile.println("\t\tPrinting map of Counters...");
+            outputFile.flush();
             for (Map.Entry<String, Map<String, Long>> entry : mapCounters.entrySet()) {
-                outputFile.println("Accessing map in entry: " + entry.getKey());
+                outputFile.println("\t\t\tAccessing map in entry: " + entry.getKey());
                 Map<String, Long> counters = entry.getValue();
                 if(counters != null)
                     for (Map.Entry<String, Long> entry1 : counters.entrySet()) {
-                        outputFile.println("\t" + entry1.getKey() + " : " + entry1.getValue());
+                        outputFile.println("\t\t\t\t" + entry1.getKey() + " : " + entry1.getValue());
+                        outputFile.flush();
                     }
             }
         }
 
-        outputFile.println("\nAccessing InputSet...");
+        outputFile.println("\t\tAccessing InputSet...");
+        outputFile.flush();
         HashSet<ReadEntity> inputSet = queryPlan.getInputs();
         if(inputSet != null) {
             for (ReadEntity readEntity : inputSet) {
-                outputFile.println("\tEntity in InputSet (to String): " + readEntity.toString());
+                outputFile.println("\t\t\tEntity in InputSet (to String): " + readEntity.toString());
+                outputFile.flush();
                 List<String> accessColumns = readEntity.getAccessedColumns();
                 if (accessColumns != null) {
-                    outputFile.println("\tPrinting Accessed Columns of Entity...");
+                    outputFile.println("\t\t\t\tPrinting Accessed Columns of Entity...");
+                    outputFile.flush();
                     for (String s : accessColumns) {
                         outputFile.println(s);
+                        outputFile.flush();
                     }
                 }
-                outputFile.println("Each entity seems to have parents...need to check this...");
-                outputFile.println("IsDirect: " + readEntity.isDirect());
+                outputFile.println("\t\t\tEach entity seems to have parents...need to check this...");
+                outputFile.flush();
+                outputFile.println("\t\t\tIsDirect: " + readEntity.isDirect());
+                outputFile.flush();
             }
         }
 
-        outputFile.println("\nAccessing OutputSet...");
+        outputFile.println("\t\tAccessing OutputSet...");
+            outputFile.flush();
         HashSet<WriteEntity> outputSet = queryPlan.getOutputs();
         if(outputSet != null) {
             for (WriteEntity writeEntity : outputSet) {
-                outputFile.println("\tEntity in OutputSet (to String): " + writeEntity.toString());
+                outputFile.println("\t\t\tEntity in OutputSet (to String): " + writeEntity.toString());
+                outputFile.flush();
                 WriteEntity.WriteType writeType = writeEntity.getWriteType();
-                if(writeType != null)
-                    outputFile.println("\tWriteType: "+writeType.toString());
+                if(writeType != null) {
+                    outputFile.println("\t\t\tWriteType: " + writeType.toString());
+                    outputFile.flush();
+                }
                 Path path = writeEntity.getD();
-                if(path != null)
-                    outputFile.println("\tPath: "+path.toString());
-                outputFile.println("\tName: "+writeEntity.getName());
+                if(path != null) {
+                    outputFile.println("\t\t\tPath: " + path.toString());
+                    outputFile.flush();
+                }
+                outputFile.println("\t\t\tName: "+writeEntity.getName());
+                outputFile.flush();
                 Table table = writeEntity.getTable();
-                if(table != null)
-                    outputFile.println("\tTable Name: "+table.getCompleteName());
+                if(table != null) {
+                    outputFile.println("\t\t\tTable Name: " + table.getCompleteName());
+                    outputFile.flush();
+                }
             }
-        }*/
+        }
 
             //outputFile.println("============================================ QUERY ===============================================\n");
             //outputFile.println("\nQuery: ["+queryPlan.getQueryString()+"]\n");
