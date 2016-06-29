@@ -650,103 +650,6 @@ public class HiveTestCluster {
 
         List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> newRoots = new LinkedList<>();
 
-        if(stagesList.size() > 0) {
-            System.out.println("\nSimplifying DAG of Stages...\n");
-
-            simplifyStages(stagesList, newRoots);
-
-            if (newRoots.size() == 0) {
-                System.out.println("Something went wrong with newRoots...");
-                System.exit(1);
-            }
-
-            List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> newStagesList = new LinkedList<>();
-
-            System.out.println("\nGathering all Stages...\n");
-
-            discoverStages(newRoots, newStagesList);
-
-            /*if(queryPlan.getFetchTask() != null){
-                System.out.println("Accessing FetchTask for QueryPlan...");
-                FetchTask fetchTask = queryPlan.getFetchTask();
-                if(fetchTask != null){
-                    outputFile.println("FetchStageID: "+fetchTask.getId());
-                    StageType stageType = fetchTask.getType();
-                    if(stageType != null){
-                        outputFile.println("StageType: "+stageType.toString());
-                    }
-                    outputFile.println("MaxTableRows: "+fetchTask.getMaxRows());
-                    outputFile.println("TotalTableRows: "+fetchTask.getTotalRows());
-                    TableDesc tableDesc = fetchTask.getTblDesc();
-                    if(tableDesc != null){
-                        outputFile.println("TableDesc: "+tableDesc.toString());
-                    }
-                    if(fetchTask.getChildTasks() != null){
-                        outputFile.println("Children: "+fetchTask.getChildTasks().toString());
-                    }
-                    if(fetchTask.getParentTasks() != null){
-                        outputFile.println("Parents: "+fetchTask.getParentTasks().toString());
-                    }
-                    if(fetchTask.getTopOperators() != null){
-                        outputFile.println("Top Operators: "+fetchTask.getTopOperators().toString());
-                    }
-                    if(fetchTask.getFetchOperator() != null){
-                        FetchOperator fetch = fetchTask.getFetchOperator();
-                        Operator<? extends Serializable> insideOp = fetch.getInsideOperator();
-                        if(insideOp != null){
-                            outputFile.println("FetchOperatorID: "+insideOp.getOperatorId());
-                            OperatorNode opNode = new OperatorNode(insideOp, fetchTask);
-                            exaremeGraphSimpler.addNode(opNode);
-                        }
-                        if(fetch.getOutputObjectInspector() != null){
-                            ObjectInspector outputInspector = fetch.getOutputObjectInspector();
-                            if(outputInspector != null){
-                                outputFile.println("OutputInspector: "+outputInspector.toString());
-                            }
-                        }
-                    }
-                    FetchWork fetchWork = fetchTask.getWork();
-                    if(fetchWork != null){
-                        outputFile.println("FetchWork: "+fetchWork.toString());
-                    }
-                }
-                exaremeGraphSimpler.setFetchTask(fetchTask);
-            }*/
-
-            exaremeGraphSimpler.setPlanStages(newStagesList);
-
-            System.out.println("\nGathering all Operators and given connections...\n");
-
-            for (org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable> root : newRoots) {
-                System.out.println("createExaremeOutputFromExec: Diving from Root Stage: " + root.getId());
-                diveInStageFromRootExec(root, null, exaremeGraphSimpler, visitedStagesSimpler);
-            }
-            /*if(queryPlan.getFetchTask() != null){
-                diveFromFetchTask(fetchTask, exaremeGraphSimp)
-            }*/
-
-            System.out.println("\nLinking MapJoins...\n");
-
-            exaremeGraphSimpler.linkMapJoins();
-
-            System.out.println("\nDiscovering current Roots...\n");
-
-            exaremeGraphSimpler.discoverRoots();
-
-            System.out.println("\nDiscovering current Leaves...\n");
-
-            exaremeGraphSimpler.discoverCurrentLeaves();
-
-            System.out.println("\nLinking appropriate Roots and Leaves based on same RowSchema...\n");
-
-            exaremeGraphSimpler.linkRootsAndLeaves();
-
-            System.out.println("\nDiscovering true Roots...\n");
-
-            exaremeGraphSimpler.discoverRoots(); //Again
-
-            exaremeGraphSimpler.discoverCurrentLeaves();
-
         outputFile.println("\t=======================Accessing QueryPlan Information===========================");
         outputFile.flush();
         HashMap<String, String> idTableNameMap = queryPlan.getIdToTableNameMap();
@@ -961,7 +864,7 @@ public class HiveTestCluster {
         }
 
         outputFile.println("\t\tAccessing OutputSet...");
-            outputFile.flush();
+        outputFile.flush();
         HashSet<WriteEntity> outputSet = queryPlan.getOutputs();
         if(outputSet != null) {
             for (WriteEntity writeEntity : outputSet) {
@@ -987,15 +890,190 @@ public class HiveTestCluster {
             }
         }
 
+        if(stagesList.size() > 0) { //Normal Stages/Tasks except from FetchTask exist
+            System.out.println("\nSimplifying DAG of Stages...\n");
+
+            simplifyStages(stagesList, newRoots);
+
+            if (newRoots.size() == 0) {
+                System.out.println("Something went wrong with newRoots...");
+                System.exit(1);
+            }
+
+            List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> newStagesList = new LinkedList<>();
+
+            System.out.println("\nGathering all Stages...\n");
+
+            discoverStages(newRoots, newStagesList);
+
+            /*if(queryPlan.getFetchTask() != null){
+                System.out.println("Accessing FetchTask for QueryPlan...");
+                FetchTask fetchTask = queryPlan.getFetchTask();
+                if(fetchTask != null){
+                    outputFile.println("FetchStageID: "+fetchTask.getId());
+                    StageType stageType = fetchTask.getType();
+                    if(stageType != null){
+                        outputFile.println("StageType: "+stageType.toString());
+                    }
+                    outputFile.println("MaxTableRows: "+fetchTask.getMaxRows());
+                    outputFile.println("TotalTableRows: "+fetchTask.getTotalRows());
+                    TableDesc tableDesc = fetchTask.getTblDesc();
+                    if(tableDesc != null){
+                        outputFile.println("TableDesc: "+tableDesc.toString());
+                    }
+                    if(fetchTask.getChildTasks() != null){
+                        outputFile.println("Children: "+fetchTask.getChildTasks().toString());
+                    }
+                    if(fetchTask.getParentTasks() != null){
+                        outputFile.println("Parents: "+fetchTask.getParentTasks().toString());
+                    }
+                    if(fetchTask.getTopOperators() != null){
+                        outputFile.println("Top Operators: "+fetchTask.getTopOperators().toString());
+                    }
+                    if(fetchTask.getFetchOperator() != null){
+                        FetchOperator fetch = fetchTask.getFetchOperator();
+                        Operator<? extends Serializable> insideOp = fetch.getInsideOperator();
+                        if(insideOp != null){
+                            outputFile.println("FetchOperatorID: "+insideOp.getOperatorId());
+                            OperatorNode opNode = new OperatorNode(insideOp, fetchTask);
+                            exaremeGraphSimpler.addNode(opNode);
+                        }
+                        if(fetch.getOutputObjectInspector() != null){
+                            ObjectInspector outputInspector = fetch.getOutputObjectInspector();
+                            if(outputInspector != null){
+                                outputFile.println("OutputInspector: "+outputInspector.toString());
+                            }
+                        }
+                    }
+                    FetchWork fetchWork = fetchTask.getWork();
+                    if(fetchWork != null){
+                        outputFile.println("FetchWork: "+fetchWork.toString());
+                    }
+                }
+                exaremeGraphSimpler.setFetchTask(fetchTask);
+            }*/
+
+            exaremeGraphSimpler.setPlanStages(newStagesList);
+
+            System.out.println("\nGathering all Operators and given connections...\n");
+
+            for (org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable> root : newRoots) {
+                System.out.println("createExaremeOutputFromExec: Diving from Root Stage: " + root.getId());
+                diveInStageFromRootExec(root, null, exaremeGraphSimpler, visitedStagesSimpler);
+            }
+            /*if(queryPlan.getFetchTask() != null){
+                diveFromFetchTask(fetchTask, exaremeGraphSimp)
+            }*/
+
+            System.out.println("\nLinking MapJoins...\n");
+
+            exaremeGraphSimpler.linkMapJoins();
+
+            System.out.println("\nDiscovering current Roots...\n");
+
+            exaremeGraphSimpler.discoverRoots();
+
+            System.out.println("\nDiscovering current Leaves...\n");
+
+            exaremeGraphSimpler.discoverCurrentLeaves();
+
+            System.out.println("\nLinking appropriate Roots and Leaves based on same RowSchema...\n");
+
+            exaremeGraphSimpler.linkRootsAndLeaves();
+
+            System.out.println("\nDiscovering true Roots...\n");
+
+            exaremeGraphSimpler.discoverRoots(); //Again
+
+            exaremeGraphSimpler.discoverCurrentLeaves();
+
             //outputFile.println("============================================ QUERY ===============================================\n");
             //outputFile.println("\nQuery: ["+queryPlan.getQueryString()+"]\n");
             //outputFile.flush();
+
+            FetchTask fetchTask = queryPlan.getFetchTask();
+            if(fetchTask != null){
+
+                System.out.println("\nFetchTask Exists and needs to be added to Graph...\n");
+
+                FetchWork fetchWork = fetchTask.getWork();
+
+                Operator<? extends Serializable> operatorSource = fetchWork.getSource();
+                if(operatorSource != null){
+                    exaremeGraphSimpler.addOperatorAndDiscoverChildren(operatorSource, fetchTask, null);
+                    OperatorNode wanted = exaremeGraphSimpler.getOperatorNodeByName(operatorSource.getOperatorId());
+                    if(wanted == null){
+                        System.out.println("Something went wrong when trying to retrieve fetch Source operator from Graph...");
+                        System.exit(0);
+                    }
+                    exaremeGraphSimpler.linkLeavesToOperatorNode(wanted);
+                }
+                Operator<? extends Serializable> listSinkOp = fetchWork.getSink();
+                if(listSinkOp != null){
+                    exaremeGraphSimpler.addOperatorAndDiscoverChildren(listSinkOp, fetchTask, null);
+                    OperatorNode wanted = exaremeGraphSimpler.getOperatorNodeByName(listSinkOp.getOperatorId());
+                    exaremeGraphSimpler.linkLeavesToOperatorNode(wanted);
+                }
+
+                newStagesList.add(fetchTask);
+                exaremeGraphSimpler.setPlanStages(newStagesList);
+
+            }
 
             exaremeGraphSimpler.printGraph(outputFile);
 
             exaremeGraphSimpler.printStagesList(outputFile);
 
             exaremeGraphSimpler.printOperatorList(outputFile);
+        }
+        else{
+            FetchTask fetchTask = queryPlan.getFetchTask();
+            if(fetchTask != null){
+
+                System.out.println("\nOnly a FetchTask exists...\n");
+
+                FetchWork fetchWork = fetchTask.getWork();
+
+                Operator<? extends Serializable> operatorSource = fetchWork.getSource();
+                if(operatorSource != null){
+                    exaremeGraphSimpler.addOperatorAndDiscoverChildren(operatorSource, fetchTask, null);
+                    OperatorNode wanted = exaremeGraphSimpler.getOperatorNodeByName(operatorSource.getOperatorId());
+                    if(wanted == null){
+                        System.out.println("Something went wrong when trying to retrieve fetch Source operator from Graph...");
+                        System.exit(0);
+                    }
+                    exaremeGraphSimpler.discoverRoots();
+                    exaremeGraphSimpler.discoverCurrentLeaves();
+                }
+                Operator<? extends Serializable> listSinkOp = fetchWork.getSink();
+                if(listSinkOp != null){
+                    exaremeGraphSimpler.addOperatorAndDiscoverChildren(listSinkOp, fetchTask, null);
+                    OperatorNode wanted = exaremeGraphSimpler.getOperatorNodeByName(listSinkOp.getOperatorId());
+                    if(wanted == null){
+                        System.out.println("Something went wrong when trying to retrieve ListSink operator from Graph...");
+                        System.exit(0);
+                    }
+                    if(operatorSource != null) {
+                        exaremeGraphSimpler.linkLeavesToOperatorNode(wanted);
+                    }
+                    else{
+                        exaremeGraphSimpler.discoverRoots();
+                        exaremeGraphSimpler.discoverCurrentLeaves();
+                    }
+                }
+
+                List<Task <?extends Serializable>> newStagesList = new LinkedList<>();
+                newStagesList.add(fetchTask);
+                exaremeGraphSimpler.setPlanStages(newStagesList);
+
+            }
+
+            exaremeGraphSimpler.printGraph(outputFile);
+
+            exaremeGraphSimpler.printStagesList(outputFile);
+
+            exaremeGraphSimpler.printOperatorList(outputFile);
+
         }
 
     }
@@ -1083,7 +1161,7 @@ public class HiveTestCluster {
                 if(compileLogFile == null) throw new RuntimeException("CompileLogFile is NULL!");
 
                 do{
-                    System.out.println("\n\nExareme Flag has been set for Query:["+statement+"]\n\n");
+                    System.out.println("\n\nWhat would you like to do for Query:["+statement+"]\n\n");
                     System.out.println("Choices...");
                     Scanner intScanner = new Scanner(System.in);
                     choice = -1;
@@ -1102,105 +1180,83 @@ public class HiveTestCluster {
                             org.apache.hadoop.hive.ql.QueryPlan queryPlan = ((Driver) proc).getPlan();
                             List<String> resultsCompile = new LinkedList<String>();
 
-                            if(queryPlan.getRootTasks() != null){
-                                List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > rootTasks = queryPlan.getRootTasks();
-                                List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > trueStagesList = new LinkedList<>();
+                            String number = Long.toString(i);
+                            compileLogFile.println("=====================================QUERY: "+number+"========================================\n");
+                            compileLogFile.flush();
+                            compileLogFile.println("\tQueryString: ["+statement+"]\n");
+                            compileLogFile.flush();
 
-                                /*if(rootTasks.size() == 0){
-                                    if(queryPlan.getFetchTask() != null)
-                                        rootTasks.add(queryPlan.getFetchTask());
-                                }
-                                else{
-                                    if(queryPlan.getFetchTask() != null)
-                                        trueStagesList.add(queryPlan.getFetchTask());
-                                }*/
-
-                                discoverStages(rootTasks, trueStagesList);
-
-                                System.out.println("\nPrinting all discovered Stages\n");
-                                for(Task t1 : trueStagesList){
-                                    System.out.println(t1.toString());
-                                }
-
-                                System.out.println("\nTotal number of items: "+trueStagesList.size());
-
-                                String number = Long.toString(i);
-                                compileLogFile.println("=====================================QUERY: "+number+"========================================\n");
+                            compileLogFile.println("\tCurrent Driver Details:");
+                            compileLogFile.flush();
+                            Schema schema = ((Driver) proc).getSchema();
+                            if(schema != null){
+                                //compileLogFile.println("Accessing Schema...");
+                                compileLogFile.println("\t\tSchema(toString): "+schema.toString());
                                 compileLogFile.flush();
-                                compileLogFile.println("\tQueryString: ["+statement+"]\n");
+                            }
+                            ClusterStatus clusterStatus = ((Driver) proc).getClusterStatus();
+                            if(clusterStatus != null){
+                                //compileLogFile.println("Accessing ClusterStatus...");
+                                compileLogFile.println("\t\tClusterStatus(toString): "+clusterStatus.toString());
                                 compileLogFile.flush();
-
-                                compileLogFile.println("\tCurrent Driver Details:");
-                                compileLogFile.flush();
-                                Schema schema = ((Driver) proc).getSchema();
-                                if(schema != null){
-                                    //compileLogFile.println("Accessing Schema...");
-                                    compileLogFile.println("\t\tSchema(toString): "+schema.toString());
+                                List<String> activeTrackers = (List<String>) clusterStatus.getActiveTrackerNames();
+                                if(activeTrackers != null){
+                                    compileLogFile.println("\t\tActiveTrackers: ");
                                     compileLogFile.flush();
-                                }
-                                ClusterStatus clusterStatus = ((Driver) proc).getClusterStatus();
-                                if(clusterStatus != null){
-                                    //compileLogFile.println("Accessing ClusterStatus...");
-                                    compileLogFile.println("\t\tClusterStatus(toString): "+clusterStatus.toString());
-                                    compileLogFile.flush();
-                                    List<String> activeTrackers = (List<String>) clusterStatus.getActiveTrackerNames();
-                                    if(activeTrackers != null){
-                                        compileLogFile.println("\t\tActiveTrackers: ");
+                                    for(String s : activeTrackers){
+                                        compileLogFile.println("\t\t\tActiveTracker: "+s);
                                         compileLogFile.flush();
-                                        for(String s : activeTrackers){
-                                            compileLogFile.println("\t\t\tActiveTracker: "+s);
-                                            compileLogFile.flush();
-                                        }
-                                    }
-                                    List<String> blackListTrackerNames = (List<String>) clusterStatus.getBlacklistedTrackerNames();
-                                    if(blackListTrackerNames != null){
-                                        compileLogFile.println("\t\tBlackListedTrackers: ");
-                                        compileLogFile.flush();
-                                        for(String s : blackListTrackerNames){
-                                            compileLogFile.println("\t\t\tBlackListedTracker: "+s);
-                                            compileLogFile.flush();
-                                        }
                                     }
                                 }
-
-                                HashMap<String, String> idTableNameMap = queryPlan.getIdToTableNameMap();
-                                if(idTableNameMap != null) {
-                                    compileLogFile.println("\t\tIdToTableName HashMap: ");
-                                    for (HashMap.Entry<String, String> entry : idTableNameMap.entrySet()) {
-                                        if(entry != null){
-                                            compileLogFile.println("\t\t\t"+entry.getKey() + " : " + entry.getValue());
-                                            compileLogFile.flush();
-                                        }
+                                List<String> blackListTrackerNames = (List<String>) clusterStatus.getBlacklistedTrackerNames();
+                                if(blackListTrackerNames != null){
+                                    compileLogFile.println("\t\tBlackListedTrackers: ");
+                                    compileLogFile.flush();
+                                    for(String s : blackListTrackerNames){
+                                        compileLogFile.println("\t\t\tBlackListedTracker: "+s);
+                                        compileLogFile.flush();
                                     }
                                 }
-                                //compileLogFile.println("\nTo String: "+queryPlan.toString());
-                                compileLogFile.println("\t\tOperationName: "+queryPlan.getOperationName());
-                                compileLogFile.flush();
-                                ColumnAccessInfo columnAccessInfo = queryPlan.getColumnAccessInfo();
-                                if(columnAccessInfo != null) {
-                                    compileLogFile.println("\t\tColumnAccessInfo to String: " + columnAccessInfo);
-                                    compileLogFile.flush();
-                                    Map<String, List<String>> columnAccessMap = columnAccessInfo.getTableToColumnAccessMap();
-                                    if(columnAccessMap != null) {
-                                        compileLogFile.println("\t\tPrinting columnAccessInfo Map...");
+                            }
+
+                            HashMap<String, String> idTableNameMap = queryPlan.getIdToTableNameMap();
+                            if(idTableNameMap != null) {
+                                compileLogFile.println("\t\tIdToTableName HashMap: ");
+                                for (HashMap.Entry<String, String> entry : idTableNameMap.entrySet()) {
+                                    if(entry != null){
+                                        compileLogFile.println("\t\t\t"+entry.getKey() + " : " + entry.getValue());
                                         compileLogFile.flush();
-                                        for (Map.Entry<String, List<String>> entry : columnAccessMap.entrySet()) {
-                                            if(entry != null) {
-                                                compileLogFile.print("\t\t\tEntry: " + entry.getKey());
-                                                compileLogFile.flush();
-                                                List<String> list = entry.getValue();
-                                                if (list != null){
-                                                    for (String s : list) {
-                                                        if (s != null) {
-                                                            compileLogFile.println("Value: " + s);
-                                                            compileLogFile.flush();
-                                                        }
+                                    }
+                                }
+                            }
+                            //compileLogFile.println("\nTo String: "+queryPlan.toString());
+                            compileLogFile.println("\t\tOperationName: "+queryPlan.getOperationName());
+                            compileLogFile.flush();
+                            ColumnAccessInfo columnAccessInfo = queryPlan.getColumnAccessInfo();
+                            if(columnAccessInfo != null) {
+                                compileLogFile.println("\t\tColumnAccessInfo to String: " + columnAccessInfo);
+                                compileLogFile.flush();
+                                Map<String, List<String>> columnAccessMap = columnAccessInfo.getTableToColumnAccessMap();
+                                if(columnAccessMap != null) {
+                                    compileLogFile.println("\t\tPrinting columnAccessInfo Map...");
+                                    compileLogFile.flush();
+                                    for (Map.Entry<String, List<String>> entry : columnAccessMap.entrySet()) {
+                                        if(entry != null) {
+                                            compileLogFile.print("\t\t\tEntry: " + entry.getKey());
+                                            compileLogFile.flush();
+                                            List<String> list = entry.getValue();
+                                            if (list != null){
+                                                for (String s : list) {
+                                                    if (s != null) {
+                                                        compileLogFile.println("Value: " + s);
+                                                        compileLogFile.flush();
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                            }
                                 /*Map<String, Map<String, Long>> mapCounters = queryPlan.getCounters();
                                 if(mapCounters != null) {
                                     outputFile.println("\nPrinting map of Counters...");
@@ -1214,62 +1270,85 @@ public class HiveTestCluster {
                                     }
                                 }*/
 
-                                compileLogFile.println("\t\tAccessing InputSet...");
-                                compileLogFile.flush();
-                                HashSet<ReadEntity> inputSet = queryPlan.getInputs();
-                                if(inputSet != null) {
-                                    for (ReadEntity readEntity : inputSet) {
-                                        compileLogFile.println("\t\t\tEntity in InputSet (to String): " + readEntity.toString());
+                            compileLogFile.println("\t\tAccessing InputSet...");
+                            compileLogFile.flush();
+                            HashSet<ReadEntity> inputSet = queryPlan.getInputs();
+                            if(inputSet != null) {
+                                for (ReadEntity readEntity : inputSet) {
+                                    compileLogFile.println("\t\t\tEntity in InputSet (to String): " + readEntity.toString());
+                                    compileLogFile.flush();
+                                    List<String> accessColumns = readEntity.getAccessedColumns();
+                                    if (accessColumns != null) {
+                                        compileLogFile.println("\t\t\tPrinting Accessed Columns of Entity...");
                                         compileLogFile.flush();
-                                        List<String> accessColumns = readEntity.getAccessedColumns();
-                                        if (accessColumns != null) {
-                                            compileLogFile.println("\t\t\tPrinting Accessed Columns of Entity...");
-                                            compileLogFile.flush();
-                                            for (String s : accessColumns) {
-                                                if(s != null) {
-                                                    compileLogFile.println("\t\t\t\t" + s);
-                                                    compileLogFile.flush();
-                                                }
+                                        for (String s : accessColumns) {
+                                            if(s != null) {
+                                                compileLogFile.println("\t\t\t\t" + s);
+                                                compileLogFile.flush();
                                             }
                                         }
-                                        compileLogFile.println("\t\t\tEach entity seems to have parents...need to check this...");
-                                        compileLogFile.flush();
-                                        compileLogFile.println("\t\t\tIsDirect: " + readEntity.isDirect());
+                                    }
+                                    compileLogFile.println("\t\t\tEach entity seems to have parents...need to check this...");
+                                    compileLogFile.flush();
+                                    compileLogFile.println("\t\t\tIsDirect: " + readEntity.isDirect());
+                                    compileLogFile.flush();
+                                }
+                            }
+
+                            compileLogFile.println("\t\tAccessing OutputSet...");
+                            HashSet<WriteEntity> outputSet = queryPlan.getOutputs();
+                            if(outputSet != null) {
+                                for (WriteEntity writeEntity : outputSet) {
+                                    compileLogFile.println("\t\t\tEntity in OutputSet (to String): " + writeEntity.toString());
+                                    compileLogFile.flush();
+                                    WriteEntity.WriteType writeType = writeEntity.getWriteType();
+                                    if (writeType != null) {
+                                        compileLogFile.println("\t\t\tWriteType: " + writeType.toString());
                                         compileLogFile.flush();
                                     }
-                                }
-
-                                compileLogFile.println("\t\tAccessing OutputSet...");
-                                HashSet<WriteEntity> outputSet = queryPlan.getOutputs();
-                                if(outputSet != null) {
-                                    for (WriteEntity writeEntity : outputSet) {
-                                        compileLogFile.println("\t\t\tEntity in OutputSet (to String): " + writeEntity.toString());
+                                    Path path = writeEntity.getD();
+                                    if (path != null) {
+                                        compileLogFile.println("\t\t\tPath: " + path.toString());
                                         compileLogFile.flush();
-                                        WriteEntity.WriteType writeType = writeEntity.getWriteType();
-                                        if (writeType != null) {
-                                            compileLogFile.println("\t\t\tWriteType: " + writeType.toString());
-                                            compileLogFile.flush();
-                                        }
-                                        Path path = writeEntity.getD();
-                                        if (path != null) {
-                                            compileLogFile.println("\t\t\tPath: " + path.toString());
-                                            compileLogFile.flush();
-                                        }
-                                        if(writeEntity.getName() != null) {
-                                            compileLogFile.println("\t\t\tName: " + writeEntity.getName());
-                                            compileLogFile.flush();
-                                        }
-                                        Table table = writeEntity.getTable();
-                                        if (table != null) {
-                                            compileLogFile.println("\t\t\tTable Name: " + table.getCompleteName());
-                                            compileLogFile.flush();
-                                        }
-
                                     }
+                                    if(writeEntity.getName() != null) {
+                                        compileLogFile.println("\t\t\tName: " + writeEntity.getName());
+                                        compileLogFile.flush();
+                                    }
+                                    Table table = writeEntity.getTable();
+                                    if (table != null) {
+                                        compileLogFile.println("\t\t\tTable Name: " + table.getCompleteName());
+                                        compileLogFile.flush();
+                                    }
+
                                 }
+                            }
+
+                            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > rootTasks;
+                            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > trueStagesList;
+
+                            if((queryPlan.getRootTasks() != null) && (queryPlan.getRootTasks().size() > 0)){
+                                rootTasks = queryPlan.getRootTasks();
+                                trueStagesList = new LinkedList<>();
+
+                                discoverStages(rootTasks, trueStagesList);
+
+                                System.out.println("\nPrinting all discovered Stages\n");
+                                for(Task t1 : trueStagesList){
+                                    System.out.println(t1.toString());
+                                }
+
+                                System.out.println("\nTotal number of items: "+trueStagesList.size());
 
                                 createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList);
 
+                            }
+                            else if(queryPlan.getFetchTask() != null) {
+                                System.out.println("\nFetchTask exists and needs to be added...");
+                                FetchTask fetchTask = queryPlan.getFetchTask();
+                                rootTasks = new LinkedList<>();
+                                trueStagesList = new LinkedList<>();
+                                createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList);
                             }
 
                             System.out.println("\n\n\n");

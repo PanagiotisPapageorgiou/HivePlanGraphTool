@@ -7,6 +7,7 @@ public class OpGraphProducerMain {
 
     public static void main(String[] args){
 
+        /*-----Setup Settings------*/
         String setupScript = "src/main/resources/scripts/tpcds18setup.sql";
         String tearDownScript = "src/main/resources/scripts/tpcds18teardown.sql";
         String queryScript = "src/main/resources/scripts/tpcds18Case1.sql";
@@ -15,12 +16,17 @@ public class OpGraphProducerMain {
 
         int numberOfDatanodes = 6;
         int numberOfTaskTrackers = 4;
+        int maxDynamicPartitions = 1000;
+        int maxDynamicPartitionsPerNode = 100;
+        boolean dynamicPartitionsEnabled = true;
 
         testCaseTool testTool = new testCaseTool(setupScript, tearDownScript, queryScript, "EXAREME");
 
         try{
-            System.out.println("Setup Cluster with "+numberOfDatanodes+" and "+numberOfTaskTrackers+" and load tables...");
-            testTool.setUp(numberOfDatanodes, numberOfTaskTrackers, true, 1000, 100);
+            System.out.println("Setup Cluster with DataNodes: "+numberOfDatanodes+" and TaskTrackers: "+numberOfTaskTrackers+" and load tables...");
+            if(dynamicPartitionsEnabled == true)
+                System.out.println("MaxDynamicPartitions: "+maxDynamicPartitions + " and MaxDynamicPartitionsPerNode: " +maxDynamicPartitionsPerNode);
+            testTool.setUp(numberOfDatanodes, numberOfTaskTrackers, dynamicPartitionsEnabled, maxDynamicPartitions, maxDynamicPartitionsPerNode);
         }
         catch(Exception ex){
             System.out.println("Setup Failed!");

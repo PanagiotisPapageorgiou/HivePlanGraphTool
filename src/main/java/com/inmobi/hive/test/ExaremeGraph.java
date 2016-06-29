@@ -47,13 +47,101 @@ public class ExaremeGraph {
         return planStages;
     }
 
-    public void addNode(OperatorNode op1) {
-        if (nodesList.contains(op1)) {
-            //for(OperatorNode op : nodesList){
-            //if(op.compareOperatorNames(op1) == true){
-            System.out.println("addNode - OperatorNode: " + op1.getOperatorName() + " already exists in Graph!");
+    public void addOperatorAndDiscoverChildren(Operator<? extends Serializable> op, Task<? extends Serializable> t, OperatorNode previousFather){
+
+        if(op != null){
+            for(OperatorNode o : nodesList){
+                if(o.getOperatorName().equals(op.getOperatorId())){
+                    return;
+                }
+            }
+            OperatorNode fatherNode = new OperatorNode(op, t);
+            addNode(fatherNode);
+            if(previousFather != null){
+                DirectedEdge e = new DirectedEdge(previousFather.getOperatorName(), fatherNode.getOperatorName(), "normal");
+                for(DirectedEdge ed : edges){
+                    if(ed.isEqualTo(e)){
+                        return;
+                    }
+                }
+                edges.add(e);
+            }
+            if(op.getChildOperators() != null){
+                if(op.getChildOperators().size() > 0){
+                    for(Operator<? extends OperatorDesc> c : op.getChildOperators()){
+                        if(c != null){
+                            addOperatorAndDiscoverChildren(c, t, fatherNode);
+                        }
+                    }
+                }
+            }
             return;
-            //}
+        }
+    }
+
+    public void linkLeavesToOperatorNode(OperatorNode newLeaf){
+
+        if(leaves != null){
+            if(leaves.size() > 0){
+                if(newLeaf != null) {
+                    for (OperatorNode op : leaves) {
+                        DirectedEdge newEdge = new DirectedEdge(op.getOperatorName(), newLeaf.getOperatorName(), "normal");
+                        this.addDirectedEdge(newEdge);
+                    }
+                    discoverCurrentLeaves();
+                }
+                else{
+                    System.out.println("NewLeaf is null!");
+                    System.exit(0);
+                }
+            }
+            else{
+               System.out.println("ERROR NO LEAVES EXIST!");
+                System.exit(0);
+            }
+        }
+
+        return;
+    }
+
+    public void linkOperatorNodes(String name1, String name2){
+
+        if(name1 != null){
+            if(name2 != null){
+                for(OperatorNode op1 : nodesList){
+                    if(op1.getOperatorName().equals(name1)){
+                        for(OperatorNode op2 : nodesList){
+                            if(op2.getOperatorName().equals(name2)){
+                                DirectedEdge edge = new DirectedEdge(name1, name2, "normal");
+                                this.addDirectedEdge(edge);
+                                System.out.println("Successfully added Edge from "+name1+" to "+name2);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        System.out.println("Failed to add Edge from "+name1+" to "+name2);
+    }
+
+    public OperatorNode getOperatorNodeByName(String name){
+        if(nodesList.size() > 0){
+            for(OperatorNode la : nodesList){
+                if(la.getOperatorName().equals(name)){
+                    return la;
+                }
+            }
+        }
+        return null;
+    }
+
+    public void addNode(OperatorNode op1) {
+        for(OperatorNode o : nodesList){
+            if(o.getOperatorName().equals(op1.getOperatorName())){
+                System.out.println("addNode - OperatorNode: " + op1.getOperatorName() + " already exists in Graph!");
+                return;
+            }
         }
         System.out.println("addNode - OperatorNode: " + op1.getOperatorName() + " successfully added!");
         nodesList.add(op1);

@@ -376,7 +376,15 @@ public class OperatorNode {
                 }
                 else{
                     System.out.println("Operator instance and type do not match!");
-                    System.exit(0);
+                    if(operator instanceof ListSinkOperator){
+                        ListSinkOperator sink = (ListSinkOperator) operator;
+                        if(sink != null){
+                            outputFile.println("\n\t\t\tListSink information...");
+                            outputFile.flush();
+                            outputFile.println("\n\t\t\t\tNumRows: "+sink.getNumRows());
+                            outputFile.flush();
+                        }
+                    }
                 }
             }
             else if(opType.toString().equals("GROUPBY")){
@@ -571,6 +579,16 @@ public class OperatorNode {
                 else{
                     System.out.println("Operator instance and type do not match!");
                     System.exit(0);
+                }
+            }
+            else if(operator instanceof ListSinkOperator){
+                outputFile.println("\n\t\t\tListSink information...");
+                outputFile.flush();
+                ListSinkOperator listSinkOperator = (ListSinkOperator) operator;
+
+                if(listSinkOperator != null){
+                    outputFile.println("\n\t\t\t\tNumRows: "+listSinkOperator.getNumRows());
+                    outputFile.flush();
                 }
             }
             else if(opType.toString().equals("UNION")){
