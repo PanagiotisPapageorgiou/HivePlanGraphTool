@@ -1,6 +1,7 @@
 package com.inmobi.hive.test;
 
 import java.io.*;
+import java.net.URI;
 import java.util.*;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Schema;
 import org.apache.hadoop.hive.ql.Driver;
 import org.apache.hadoop.hive.ql.QueryPlan;
@@ -24,6 +26,7 @@ import org.apache.hadoop.hive.ql.exec.mr.ExecMapperContext;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.lib.Node;
+import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.optimizer.physical.StageIDsRearranger;
 import org.apache.hadoop.hive.ql.parse.ColumnAccessInfo;
@@ -33,6 +36,7 @@ import org.apache.hadoop.hive.ql.processors.CommandProcessor;
 import org.apache.hadoop.hive.ql.processors.CommandProcessorFactory;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.shims.HadoopShims;
 import org.apache.hadoop.mapred.ClusterStatus;
 import org.apache.hadoop.mapred.Counters;
@@ -808,8 +812,149 @@ public class HiveTestCluster {
                         outputFile.flush();
                     }
                 }
-                outputFile.println("\t\t\tEach entity seems to have parents...need to check this...");
-                outputFile.flush();
+                Set<ReadEntity> parentEntities = readEntity.getParents();
+                if(parentEntities != null){
+                    for(ReadEntity p : parentEntities){
+                        if(p != null){
+                            outputFile.println("\t\t\t\tParent: "+p.toString());
+                            outputFile.flush();
+                        }
+                    }
+                }
+
+                Path pathD = readEntity.getD();
+                if(pathD != null){
+                    outputFile.println("\t\t\t\tgetD: "+pathD.toString());
+                    outputFile.flush();
+                }
+
+                try {
+                    URI location = readEntity.getLocation();
+                    if(location != null) {
+                        outputFile.println("\t\t\t\tURI details: ");
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tAuthority: " + location.getAuthority());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tFragment: " + location.getFragment());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tHost: " + location.getHost());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tPath: " + location.getPath());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tQuery: " + location.getQuery());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRaw Authority: " + location.getRawAuthority());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRaw Fragment: " + location.getRawFragment());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawPath: " + location.getRawPath());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawQuery: " + location.getRawQuery());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawSchemeSpecificPart: " + location.getRawSchemeSpecificPart());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tScheme: " + location.getScheme());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tSchemeSpecificPart: " + location.getSchemeSpecificPart());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tUserInfo: " + location.getUserInfo());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tPort: " + location.getPort());
+                        outputFile.flush();
+                    }
+                }
+                catch(java.lang.Exception ex){
+                    outputFile.println("\t\t\t\tURI: Failed to get URI!");
+                    outputFile.flush();
+                }
+
+                Partition partition = readEntity.getP();
+                if(partition != null){
+                    outputFile.println("\t\t\t\tPartition details: ");
+                    outputFile.flush();
+                    List<String> bucketColsList = partition.getBucketCols();
+                    if(bucketColsList != null){
+                        outputFile.println("\t\t\t\t\tbucketCols: "+bucketColsList.toString());
+                        outputFile.flush();
+                    }
+                    outputFile.println("\t\t\t\t\tbucketCount: "+partition.getBucketCount());
+                    outputFile.flush();
+                    List<FieldSchema> colsFieldSchemas = partition.getCols();
+                    if(colsFieldSchemas != null){
+                        outputFile.println("\t\t\t\t\tCols FieldSchemas: ");
+                        outputFile.flush();
+                        for(FieldSchema f : colsFieldSchemas){
+                            if(f != null){
+                                outputFile.println("\t\t\t\t\t\tCol FieldSchema(toString): "+f.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                    outputFile.println("\t\t\t\t\tCompleteName: "+partition.getCompleteName());
+                    outputFile.flush();
+                    Path dataLocation = partition.getDataLocation();
+                    if(dataLocation != null){
+                        outputFile.println("\t\t\t\t\tData Location: "+dataLocation.toString());
+                        outputFile.flush();
+                    }
+                    outputFile.println("\t\t\t\t\tLocation: "+partition.getLocation());
+                    outputFile.flush();
+                    Path partitionPath = partition.getPartitionPath();
+                    if(partitionPath != null){
+                        outputFile.println("\t\t\t\t\tPartition Path: "+partitionPath.toString());
+                        outputFile.flush();
+                    }
+                }
+
+                Table table = readEntity.getTable();
+                if(table != null){
+                    outputFile.println("\t\t\t\tTable details: ");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\t\tCompleteName: "+table.getCompleteName());
+                    outputFile.flush();
+                    Path dL = table.getDataLocation();
+                    if(dL != null){
+                        outputFile.println("\t\t\t\t\tDataLocation: "+dL.toString());
+                        outputFile.flush();
+                    }
+                    List<FieldSchema> allCols = table.getAllCols();
+                    if(allCols != null){
+                        outputFile.println("\t\t\t\t\tAllCols: ");
+                        outputFile.flush();
+                        for(FieldSchema col : allCols){
+                            if(col != null) {
+                                outputFile.println("\t\t\t\t\t\tCol: " +col.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+
+                    ArrayList<StructField> allFields = table.getFields();
+                    if(allFields != null){
+                        outputFile.println("\t\t\t\t\tAllFields: ");
+                        outputFile.flush();
+                        for(StructField field : allFields){
+                            if(field != null){
+                                outputFile.println("\t\t\t\t\t\tFieldName: " +field.getFieldName());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                    outputFile.println("\t\t\t\t\tOwner: "+table.getOwner());
+                    outputFile.flush();
+                    List<FieldSchema> partitionKeys = table.getPartitionKeys();
+                    if(partitionKeys != null){
+                        outputFile.println("\t\t\t\t\tPartition Keys: ");
+                        outputFile.flush();
+                        for(FieldSchema col : partitionKeys){
+                            if(col != null) {
+                                outputFile.println("\t\t\t\t\t\tPartitionKey: " +col.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                }
+
                 outputFile.println("\t\t\tIsDirect: " + readEntity.isDirect());
                 outputFile.flush();
             }
@@ -1119,6 +1264,7 @@ public class HiveTestCluster {
                                             compileLogFile.println("\t\t\tTable Name: " + table.getCompleteName());
                                             compileLogFile.flush();
                                         }
+
                                     }
                                 }
 
