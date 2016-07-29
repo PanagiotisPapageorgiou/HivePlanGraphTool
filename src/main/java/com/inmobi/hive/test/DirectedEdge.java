@@ -28,7 +28,6 @@ public class DirectedEdge {
 
     public boolean isEqualTo(DirectedEdge edge){
 
-        if(label.equals(edge.getLabel())){
             if(getFromVertex().equals(edge.getFromVertex())){
                 if(getToVertex().equals(edge.getToVertex())){
                     return true;
@@ -36,8 +35,6 @@ public class DirectedEdge {
                 else return false;
             }
             else return false;
-        }
-        else return false;
     }
 
 }

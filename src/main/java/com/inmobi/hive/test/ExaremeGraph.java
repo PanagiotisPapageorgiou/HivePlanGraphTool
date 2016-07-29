@@ -1,6 +1,7 @@
 package com.inmobi.hive.test;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.exec.*;
 import org.apache.hadoop.hive.ql.exec.Task;
@@ -9,6 +10,7 @@ import org.apache.hadoop.hive.ql.exec.mr.ExecMapperContext;
 import org.apache.hadoop.hive.ql.exec.mr.MapRedTask;
 import org.apache.hadoop.hive.ql.exec.mr.MapredLocalTask;
 import org.apache.hadoop.hive.ql.index.IndexMetadataChangeTask;
+import org.apache.hadoop.hive.ql.index.IndexMetadataChangeWork;
 import org.apache.hadoop.hive.ql.plan.*;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
@@ -87,6 +89,18 @@ public class ExaremeGraph {
                     for (OperatorNode op : leaves) {
                         DirectedEdge newEdge = new DirectedEdge(op.getOperatorName(), newLeaf.getOperatorName(), "normal");
                         this.addDirectedEdge(newEdge);
+                        List<Operator<? extends OperatorDesc>> children = new LinkedList<>();
+                        children.add(newLeaf.getOperator());
+                        op.getOperator().setChildOperators(children);
+                        if(newLeaf.getOperator().getParentOperators() != null){
+                            newLeaf.getOperator().getParentOperators().add(op.getOperator());
+                        }
+                        else{
+                            LinkedList<Operator<? extends OperatorDesc>> parents = new LinkedList<>();
+                            parents.add(op.getOperator());
+                            newLeaf.getOperator().setParentOperators(parents);
+                        }
+                        System.out.println("Linked Op: "+op.getOperatorName() + " to Op: "+newLeaf.getOperatorName());
                     }
                     discoverCurrentLeaves();
                 }
@@ -137,6 +151,18 @@ public class ExaremeGraph {
     }
 
     public void addNode(OperatorNode op1) {
+        if(op1.getOperator().getOperatorId().contains("OP_") == true){
+            List<Operator<?>> children = op1.getOperator().getChildOperators();
+            if(children != null){
+                if(children.contains(op1.getOperator()))
+                    children.remove(op1.getOperator());
+            }
+            List<Operator<?>> parent = op1.getOperator().getParentOperators();
+            if(parent != null){
+                if(parent.contains(op1.getOperator()))
+                    parent.remove(op1.getOperator());
+            }
+        }
         for(OperatorNode o : nodesList){
             if(o.getOperatorName().equals(op1.getOperatorName())){
                 System.out.println("addNode - OperatorNode: " + op1.getOperatorName() + " already exists in Graph!");
@@ -148,6 +174,18 @@ public class ExaremeGraph {
     }
 
     public void addRoot(OperatorNode op1) {
+        if(op1.getOperator().getOperatorId().contains("OP_") == true){
+            List<Operator<?>> children = op1.getOperator().getChildOperators();
+            if(children != null){
+                if(children.contains(op1.getOperator()))
+                    children.remove(op1.getOperator());
+            }
+            List<Operator<?>> parent = op1.getOperator().getParentOperators();
+            if(parent != null){
+                if(parent.contains(op1.getOperator()))
+                    parent.remove(op1.getOperator());
+            }
+        }
         if (roots.contains(op1)) {
             //for(OperatorNode op : roots){
             //if(op.compareOperatorNames(op1) == true){
@@ -160,6 +198,18 @@ public class ExaremeGraph {
     }
 
     public void addLeaf(OperatorNode op1) {
+        if(op1.getOperator().getOperatorId().contains("OP_") == true){
+            List<Operator<?>> children = op1.getOperator().getChildOperators();
+            if(children != null){
+                if(children.contains(op1.getOperator()))
+                    children.remove(op1.getOperator());
+            }
+            List<Operator<?>> parent = op1.getOperator().getParentOperators();
+            if(parent != null){
+                if(parent.contains(op1.getOperator()))
+                    parent.remove(op1.getOperator());
+            }
+        }
         if (leaves.contains(op1)) {
             //for(OperatorNode op : roots){
             //if(op.compareOperatorNames(op1) == true){
@@ -202,6 +252,10 @@ public class ExaremeGraph {
 
     public void addDirectedEdge(DirectedEdge e1) {
 
+        if(e1.getFromVertex().contains("OP_") && e1.getToVertex().contains("OP_")){
+            System.out.println("Ignoring ListSink SelfEdge!");
+            return;
+        }
         for (DirectedEdge e : edges) {
             if (e.isEqualTo(e1) == true) {
                 System.out.println("addDirectedEdge - Edge: [FROM: " + e1.getFromVertex() + " TO: " + e1.getToVertex() + "] already exists in Graph!");
@@ -257,11 +311,42 @@ public class ExaremeGraph {
 
         if (leaves.size() > 0) leaves = new LinkedList<>();
 
+        boolean hasChild;
         for (OperatorNode op : nodesList) {
-            if ((op.getOperator().getChildOperators() == null) || ((op.getOperator().getChildOperators() != null) && (op.getOperator().getChildOperators().size() == 0))) {
-                addLeaf(op);
+            if(op.getOperator().getOperatorId().contains("OP_")){
+                if(op.getOperator().getChildOperators().size() == 1){
+                    if(op.getOperator().getChildOperators().contains(op.getOperator())){
+                        addLeaf(op);
+                        List<Operator<?>> children = op.getOperator().getChildOperators();
+                        if(children != null){
+                            children.remove(op.getOperator());
+                        }
+                        List<Operator<?>> parent = op.getOperator().getParentOperators();
+                        if(parent != null){
+                            if(parent.contains(op.getOperator()))
+                                parent.remove(op.getOperator());
+                        }
+                    }
+                }
+                else if(op.getOperator().getChildOperators().size() == 0){
+                    addLeaf(op);
+                }
+            }
+            else {
+                hasChild = false;
+                for (DirectedEdge e : edges) {
+                    if (e.getFromVertex().equals(op.getOperatorName())) { //Discovered father
+                        hasChild = true;
+                        break;
+                    }
+                }
+
+                if (hasChild == false) {
+                    leaves.add(op); //Add Operator to roots
+                }
             }
         }
+
     }
 
     public int countColXOccurencesInString(String subString, String fullString) {
@@ -313,6 +398,194 @@ public class ExaremeGraph {
 
     public void linkRootsAndLeaves() {
 
+        System.out.println("Printing all leaves BEFORE LINK...");
+
+        for(OperatorNode operatorNode : leaves) {
+            Operator<?> operator = operatorNode.getOperator();
+            System.out.println("\t\t------------------------OPERATOR: " + operator.getOperatorId() + " ----------------------------------");
+            System.out.flush();
+            System.out.println("\t\t\tOperatorName: " + operator.getName());
+            System.out.flush();
+            System.out.println("\t\t\tOperatorIdentifier: " + operator.getIdentifier());
+            System.out.flush();
+            System.out.println("\t\t\tToString: " + operator.toString());
+            System.out.flush();
+            Map<String, ExprNodeDesc> mapExprNodeDesc = operator.getColumnExprMap();
+            if (mapExprNodeDesc != null) {
+                System.out.println("\t\t\tPrinting MapExprNodeDesc...");
+                System.out.flush();
+                for (Map.Entry<String, ExprNodeDesc> entry : mapExprNodeDesc.entrySet()) {
+                    ExprNodeDesc tmp = entry.getValue();
+                    if (tmp != null) {
+                        System.out.println("\t\t\t\tPriting Key: " + entry.getKey() + " with Value(ToString): " + tmp.toString());
+                        System.out.flush();
+                    }
+                }
+            } else {
+                System.out.println("\t\t\tColumnExprMap is null...");
+                System.out.flush();
+            }
+
+            OperatorType opType = operator.getType();
+            if (opType != null) {
+                System.out.println("\t\t\tOperatorType(toString): " + opType.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tOperatorType is null...");
+                System.out.flush();
+            }
+
+            List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> childOperators = operator.getChildOperators();
+            if (childOperators != null) {
+                if (childOperators.size() > 0)
+                    System.out.println("\t\t\tIsLeaf: NO");
+                else
+                    System.out.println("\t\t\tIsLeaf: YES");
+                for (org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc> ch : childOperators) {
+                    if (ch != null) {
+                        System.out.println("\t\t\t\tChildID: " + ch.getOperatorId());
+                        System.out.flush();
+                    } else {
+                        System.out.println("Child is NULL...?");
+                    }
+                }
+            } else {
+                System.out.println("\t\t\tIsLeaf: YES");
+                System.out.println("\t\t\tOperator has no children...");
+                System.out.flush();
+            }
+
+            List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> parentOperators = operator.getParentOperators();
+            if (parentOperators != null) {
+                if (parentOperators.size() > 0)
+                    System.out.println("\t\t\tIsRoot: NO");
+                else
+                    System.out.println("\t\t\tIsRoot: YES");
+
+                for (org.apache.hadoop.hive.ql.exec.Operator<? extends Serializable> p : parentOperators)
+                    if (p != null) {
+                        System.out.println("\t\t\t\tParentID: " + p.getOperatorId());
+                        System.out.flush();
+                    }
+            } else {
+                System.out.println("\t\t\tIsRoot: YES");
+                System.out.println("\t\t\tOperator has no parent...");
+                System.out.flush();
+            }
+            ExecMapperContext execMapperContext = operator.getExecContext();
+            if (execMapperContext != null) {
+                System.out.println("\t\t\tExecMapperContext(toString): " + execMapperContext.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tExecContext is null...");
+                System.out.flush();
+            }
+
+            RowSchema rowSchema = operator.getSchema();
+            if (rowSchema != null) {
+                System.out.println("\t\t\tRowSchema: " + rowSchema.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tRowSchema is null!");
+                System.out.flush();
+            }
+
+        }
+
+        System.out.println("Printing all Roots before link...");
+
+        for(OperatorNode operatorNode : roots) {
+            Operator<?> operator = operatorNode.getOperator();
+            System.out.println("\t\t------------------------OPERATOR: " + operator.getOperatorId() + " ----------------------------------");
+            System.out.flush();
+            System.out.println("\t\t\tOperatorName: " + operator.getName());
+            System.out.flush();
+            System.out.println("\t\t\tOperatorIdentifier: " + operator.getIdentifier());
+            System.out.flush();
+            System.out.println("\t\t\tToString: " + operator.toString());
+            System.out.flush();
+            Map<String, ExprNodeDesc> mapExprNodeDesc = operator.getColumnExprMap();
+            if (mapExprNodeDesc != null) {
+                System.out.println("\t\t\tPrinting MapExprNodeDesc...");
+                System.out.flush();
+                for (Map.Entry<String, ExprNodeDesc> entry : mapExprNodeDesc.entrySet()) {
+                    ExprNodeDesc tmp = entry.getValue();
+                    if (tmp != null) {
+                        System.out.println("\t\t\t\tPriting Key: " + entry.getKey() + " with Value(ToString): " + tmp.toString());
+                        System.out.flush();
+                    }
+                }
+            } else {
+                System.out.println("\t\t\tColumnExprMap is null...");
+                System.out.flush();
+            }
+
+            OperatorType opType = operator.getType();
+            if (opType != null) {
+                System.out.println("\t\t\tOperatorType(toString): " + opType.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tOperatorType is null...");
+                System.out.flush();
+            }
+
+            List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> childOperators = operator.getChildOperators();
+            if (childOperators != null) {
+                if (childOperators.size() > 0)
+                    System.out.println("\t\t\tIsLeaf: NO");
+                else
+                    System.out.println("\t\t\tIsLeaf: YES");
+                for (org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc> ch : childOperators) {
+                    if (ch != null) {
+                        System.out.println("\t\t\t\tChildID: " + ch.getOperatorId());
+                        System.out.flush();
+                    } else {
+                        System.out.println("Child is NULL...?");
+                    }
+                }
+            } else {
+                System.out.println("\t\t\tIsLeaf: YES");
+                System.out.println("\t\t\tOperator has no children...");
+                System.out.flush();
+            }
+
+            List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> parentOperators = operator.getParentOperators();
+            if (parentOperators != null) {
+                if (parentOperators.size() > 0)
+                    System.out.println("\t\t\tIsRoot: NO");
+                else
+                    System.out.println("\t\t\tIsRoot: YES");
+
+                for (org.apache.hadoop.hive.ql.exec.Operator<? extends Serializable> p : parentOperators)
+                    if (p != null) {
+                        System.out.println("\t\t\t\tParentID: " + p.getOperatorId());
+                        System.out.flush();
+                    }
+            } else {
+                System.out.println("\t\t\tIsRoot: YES");
+                System.out.println("\t\t\tOperator has no parent...");
+                System.out.flush();
+            }
+            ExecMapperContext execMapperContext = operator.getExecContext();
+            if (execMapperContext != null) {
+                System.out.println("\t\t\tExecMapperContext(toString): " + execMapperContext.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tExecContext is null...");
+                System.out.flush();
+            }
+
+            RowSchema rowSchema = operator.getSchema();
+            if (rowSchema != null) {
+                System.out.println("\t\t\tRowSchema: " + rowSchema.toString());
+                System.out.flush();
+            } else {
+                System.out.println("\t\t\tRowSchema is null!");
+                System.out.flush();
+            }
+
+        }
+
         if (roots != null) {
             if (roots.size() > 0) {
                 for (OperatorNode opNode : roots) {
@@ -322,29 +595,36 @@ public class ExaremeGraph {
                             if (leaf != null) {
                                 if (leaf.getSchema() != null) {
                                     if (opNode.getOperator().getSchema() != null) {
-                                        if (leaf.getSchema().toString().equals(opNode.getOperator().getSchema().toString())) {
-                                            DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), opNode.getOperator().getOperatorId(), "LEAF TO ROOT");
-                                            addDirectedEdge(e);
-                                            System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + opNode.getOperator().getOperatorId());
-                                            List<Operator<? extends OperatorDesc>> rootParents;
-                                            if (opNode.getOperator().getParentOperators() != null) {
-                                                rootParents = opNode.getOperator().getParentOperators();
-                                            } else {
-                                                rootParents = new LinkedList<>();
+                                        if(opNode.getOperator().getSchema().toString().contains("col")) {
+                                            if(opLeaf.getOwnerStage().getId().equals(opNode.getOwnerStage().getId())) {
+                                                System.out.println("Leaf: " + leaf.getOperatorId() + " and Root: " + opNode.getOperator().getOperatorId() +" belong to the same stage! Not checking for edge!");
                                             }
-                                            rootParents.add(leaf);
-                                            opNode.getOperator().setParentOperators(rootParents);
-                                            if ((leaf.getChildOperators() == null) || ((leaf.getChildOperators() != null) && (leaf.getChildOperators().size() == 0))) {
-                                                List<Operator<? extends OperatorDesc>> leafChildren = new LinkedList<>();
-                                                leafChildren.add(opNode.getOperator());
-                                                leaf.setChildOperators(leafChildren);
-                                            } else {
-                                                List<Operator<? extends OperatorDesc>> leafChildren = leaf.getChildOperators();
-                                                if (!leafChildren.contains(opNode.getOperator())) {
-                                                    leafChildren.add(opNode.getOperator());
-                                                    leaf.setChildOperators(leafChildren);
-                                                    System.out.println("WARNING: This leaf has now more than one child check if this is correct! Children: " + leafChildren.toString());
-                                                    System.exit(1);
+                                            else{
+                                                if (leaf.getSchema().toString().equals(opNode.getOperator().getSchema().toString())) {
+                                                    DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), opNode.getOperator().getOperatorId(), "LEAF TO ROOT");
+                                                    addDirectedEdge(e);
+                                                    System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + opNode.getOperator().getOperatorId());
+                                                    List<Operator<? extends OperatorDesc>> rootParents;
+                                                    if (opNode.getOperator().getParentOperators() != null) {
+                                                        rootParents = opNode.getOperator().getParentOperators();
+                                                    } else {
+                                                        rootParents = new LinkedList<>();
+                                                    }
+                                                    rootParents.add(leaf);
+                                                    opNode.getOperator().setParentOperators(rootParents);
+                                                    if ((leaf.getChildOperators() == null) || ((leaf.getChildOperators() != null) && (leaf.getChildOperators().size() == 0))) {
+                                                        List<Operator<? extends OperatorDesc>> leafChildren = new LinkedList<>();
+                                                        leafChildren.add(opNode.getOperator());
+                                                        leaf.setChildOperators(leafChildren);
+                                                    } else {
+                                                        List<Operator<? extends OperatorDesc>> leafChildren = leaf.getChildOperators();
+                                                        if (!leafChildren.contains(opNode.getOperator())) {
+                                                            leafChildren.add(opNode.getOperator());
+                                                            leaf.setChildOperators(leafChildren);
+                                                            System.out.println("WARNING: This leaf has now more than one child check if this is correct! Children: " + leafChildren.toString());
+                                                            System.exit(1);
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -769,18 +1049,116 @@ public class ExaremeGraph {
             }
 
         }
+        outputFile.println("\t\t\tisMapRedLocalTask: "+t.isMapRedLocalTask());
+        outputFile.flush();
+        outputFile.println("\t\t\trequireLock: "+t.requireLock());
+        outputFile.flush();
+        outputFile.println("\t\t\thasReduce: "+t.hasReduce());
+        outputFile.flush();
+        outputFile.println("\t\t\tifRetryCmdWhenFail: "+t.ifRetryCmdWhenFail());
+        outputFile.flush();
+        outputFile.println("\t\t\tisFetchSource: "+t.isFetchSource());
+        outputFile.flush();
+        outputFile.println("\t\t\tisRunnable: "+t.isRunnable());
+        outputFile.flush();
 
-        if(t instanceof FetchTask ){
+        if(t instanceof FetchTask ){ //Find All FetchTask information
             outputFile.println("\n\t\t\tStageType: FetchTask");
             outputFile.flush();
             FetchTask fetchTask = (FetchTask) t;
-            if(fetchTask != null){
-                outputFile.println("\t\t\t\tMaxRows: "+fetchTask.getMaxRows());
+            if(fetchTask != null) {
+                outputFile.println("\t\t\t\tMaxRows: " + fetchTask.getMaxRows());
                 outputFile.flush();
                 TableDesc tableDesc = fetchTask.getTblDesc();
-                if(tableDesc != null){
-                    outputFile.println("\t\t\t\tTableDesc(toString): "+tableDesc.toString());
+                if (tableDesc != null) {
+                    outputFile.println("\t\t\t\tTableDesc(toString): " + tableDesc.toString());
                     outputFile.flush();
+                }
+                FetchWork value = fetchTask.getWork();
+                if (value != null) {
+                    outputFile.println("\t\t\t\tisPartitioned: " + value.isPartitioned());
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\tisNotPartitioned: " + value.isNotPartitioned());
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\tLeastNumRows: " + value.getLeastNumRows());
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\tLimit: " + value.getLimit());
+                    outputFile.flush();
+                    Path tblDir = value.getTblDir();
+                    if (tblDir != null) {
+                        outputFile.println("\t\t\t\tTableDirectory: " + tblDir);
+                        outputFile.flush();
+                    }
+                    Operator<?> source = value.getSource();
+                    if (source != null) {
+                        outputFile.println("\t\t\t\tSource Operator: " + source.getOperatorId());
+                        outputFile.flush();
+                        if (source.getChildOperators() != null) {
+                            outputFile.println("\t\t\t\t\tChildren: " + source.getChildOperators().toString());
+                            outputFile.flush();
+                        }
+                        if (source.getParentOperators() != null) {
+                            outputFile.println("\t\t\t\t\tParents: " + source.getParentOperators().toString());
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\tType: " + source.getType());
+                        outputFile.flush();
+                        RowSchema rowSchema = source.getSchema();
+                        if (rowSchema != null) {
+                            outputFile.println("\t\t\t\t\tRowSchema: " + rowSchema.toString());
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\topAllowedBeforeSortMergeJoin: " + source.opAllowedBeforeSortMergeJoin());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\topAllowedBeforeMapJoin: " + source.opAllowedBeforeMapJoin());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\topAllowedAfterMapJoin: " + source.opAllowedAfterMapJoin());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tsupportUnionRemoveOptimization: " + source.supportUnionRemoveOptimization());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tacceptLimitPushdown: " + source.acceptLimitPushdown());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tcolumnNamesRowResolvedCanBeObtained: " + source.columnNamesRowResolvedCanBeObtained());
+                        outputFile.flush();
+                    }
+                    ListSinkOperator sinkOperator = value.getSink();
+                    if (sinkOperator != null) {
+                        outputFile.println("\t\t\t\tListSink Operator: " + sinkOperator.getOperatorId());
+                        outputFile.flush();
+                        if (sinkOperator.getChildOperators() != null) {
+                            outputFile.println("\t\t\t\t\tChildren: " + sinkOperator.getChildOperators().toString());
+                            outputFile.flush();
+                        }
+                        if (sinkOperator.getParentOperators() != null) {
+                            outputFile.println("\t\t\t\t\tParents: " + sinkOperator.getParentOperators().toString());
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\tType: " + sinkOperator.getType());
+                        outputFile.flush();
+                        RowSchema rowSchema = sinkOperator.getSchema();
+                        if (rowSchema != null) {
+                            outputFile.println("\t\t\t\t\tRowSchema: " + rowSchema.toString());
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\tNumRows: " + sinkOperator.getNumRows());
+                        outputFile.flush();
+                    }
+
+                    ArrayList<PartitionDesc> partitionDescs = value.getPartDesc();
+                    if (partitionDescs != null) {
+                        outputFile.println("\t\t\t\tPartition Descriptions: ");
+                        outputFile.flush();
+                        for (PartitionDesc p : partitionDescs) {
+                            if (p != null) {
+                                outputFile.println("\t\t\t\tPartition: ");
+                                outputFile.flush();
+                                outputFile.println("\t\t\t\t\tTableName: " + p.getTableName());
+                                outputFile.flush();
+                                outputFile.println("\t\t\t\t\tBaseFileName: " + p.getBaseFileName());
+                                outputFile.flush();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -936,9 +1314,233 @@ public class ExaremeGraph {
                 outputFile.flush();
                 outputFile.println("\t\t\t\treduceStarted: "+mapRedTask.reduceStarted());
                 outputFile.flush();
+                MapredWork mapRedWork = mapRedTask.getWork();
+                if(mapRedWork != null){
+                    outputFile.println("\t\t\t\tisFinalMapRed: "+mapRedWork.isFinalMapRed());
+                    outputFile.flush();
+                    //List<Operator<?>> allOps = mapRedWork.getAllOperators();
+                    //if(allOps != null){
+                        //outputFile.println("\t\t\t\tAll Operators: "+allOps.toString());
+                        //outputFile.flush();
+                    //}
+                    MapWork mapWork = mapRedWork.getMapWork();
+                    if(mapWork != null){
+                        outputFile.println("\t\t\t\tMapWork: ");
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisUseBucketizedHiveInputFormat: "+mapWork.isUseBucketizedHiveInputFormat());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tgetDoSplitsGrouping: "+mapWork.getDoSplitsGrouping());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tgetDummyTableScan: "+mapWork.getDummyTableScan());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tgetHadoopSupportsSplittable: "+mapWork.getHadoopSupportsSplittable());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisLeftInputJoin: "+mapWork.isLeftInputJoin());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisInputFormatSorted: "+mapWork.isInputFormatSorted());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisMapperCannotSpanPartns: "+mapWork.isMapperCannotSpanPartns());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisUseOneNullRowInputFormat: "+mapWork.isUseOneNullRowInputFormat());
+                        outputFile.flush();
+
+                        LinkedHashMap<String, ArrayList<String>> pathToAliases = mapWork.getPathToAliases();
+                        if(pathToAliases != null){
+                            outputFile.println("\t\t\t\t\tpathToAliases: ");
+                            outputFile.flush();
+                            for(Map.Entry<String, ArrayList<String>> entry : pathToAliases.entrySet()){
+                                if(entry != null){
+                                    outputFile.println("\t\t\t\t\t\tPath= "+entry.getKey());
+                                    outputFile.flush();
+                                    ArrayList<String> value = entry.getValue();
+                                    if(value != null){
+                                        for(String s1 : value){
+                                            outputFile.println("\t\t\t\t\t\t\tValue= "+s1);
+                                            outputFile.flush();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ArrayList<String> aliases = mapWork.getAliases();
+                        if(aliases != null){
+                            outputFile.println("\t\t\t\t\tAliases: ");
+                            outputFile.flush();
+                            for(String s1 : aliases){
+                                outputFile.println("\t\t\t\t\t\tAlias: "+s1);
+                                outputFile.flush();
+                            }
+                        }
+                        LinkedHashMap<String, PartitionDesc> aliasToPartitionInfo = mapWork.getAliasToPartnInfo();
+                        if(aliasToPartitionInfo != null){
+                            outputFile.println("\t\t\t\t\taliasToPartitionInfo: ");
+                            outputFile.flush();
+                            for(Map.Entry<String, PartitionDesc> entry : aliasToPartitionInfo.entrySet()){
+                                if(entry != null){
+                                    outputFile.println("\t\t\t\t\t\tAlias= "+entry.getKey());
+                                    outputFile.flush();
+                                    PartitionDesc partitionDesc = entry.getValue();
+                                    if(partitionDesc != null){
+                                        outputFile.println("\t\t\t\t\t\t\tPartitionDesc= ");
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\t\tBaseFileName= "+partitionDesc.getBaseFileName());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\t\tTableName= "+partitionDesc.getTableName());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\t\tisPartitioned= "+partitionDesc.isPartitioned());
+                                        outputFile.flush();
+                                    }
+                                }
+                            }
+                        }
+                        LinkedHashMap<String, Operator<? extends OperatorDesc>> aliasToWork = mapWork.getAliasToWork();
+                        if(aliasToWork != null){
+                            outputFile.println("\t\t\t\t\taliasToWork: ");
+                            outputFile.flush();
+                            for(Map.Entry<String, Operator<? extends OperatorDesc>> entry : aliasToWork.entrySet()){
+                                if(entry != null){
+                                    outputFile.println("\t\t\t\t\t\tAlias= "+entry.getKey());
+                                    outputFile.flush();
+                                    Operator<? extends OperatorDesc> op = entry.getValue();
+                                    if(op != null){
+                                        outputFile.println("\t\t\t\t\t\t\tOperator= "+op.getOperatorId());
+                                        outputFile.flush();
+                                    }
+                                }
+                            }
+                        }
+                        String[] baseSrc = mapWork.getBaseSrc();
+                        if(baseSrc != null){
+                            outputFile.println("\t\t\t\t\tBaseSrc: ");
+                            outputFile.flush();
+                            for(String b : baseSrc){
+                                if(b != null){
+                                    outputFile.println("\t\t\t\t\t\t"+b);
+                                    outputFile.flush();
+                                }
+                            }
+                        }
+                        Set<Operator<?>> allRoots = mapWork.getAllRootOperators();
+                        if(allRoots != null){
+                            outputFile.println("\t\t\t\t\tallRootOperators: ");
+                            outputFile.flush();
+                            for(Operator<? extends OperatorDesc> op : allRoots){
+                                if(op != null){
+                                    outputFile.println("\t\t\t\t\t\tOperator= "+op.getOperatorId());
+                                    outputFile.flush();
+                                }
+                            }
+                        }
+                        List<String> mapAliases = mapWork.getMapAliases();
+                        if(mapAliases != null){
+                            outputFile.println("\t\t\t\t\tmapAliases: ");
+                            outputFile.flush();
+                            for(String mapAlias : mapAliases){
+                                outputFile.println("\t\t\t\t\t\tMapAlias "+mapAlias);
+                                outputFile.flush();
+                            }
+                        }
+                        Integer numTasks = mapWork.getNumMapTasks();
+                        if(numTasks != null){
+                            outputFile.println("\t\t\t\t\tnumMapTasks: "+numTasks);
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\tMaxSplitSize: "+mapWork.getMaxSplitSize());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tMinSplitSize: "+mapWork.getMinSplitSize());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tMinSplitSizePerNode: "+mapWork.getMinSplitSizePerNode());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tMinSplitSizePerRack: "+mapWork.getMinSplitSizePerRack());
+                        outputFile.flush();
+                    }
+                    ReduceWork reduceWork = mapRedWork.getReduceWork();
+                    if(reduceWork != null){
+                        outputFile.println("\t\t\t\tReduceWork: ");
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tisAutoReduceParallelism: "+reduceWork.isAutoReduceParallelism());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tNeedsTagging: "+reduceWork.getNeedsTagging());
+                        outputFile.flush();
+                        Set<Operator<?>> allRoots = reduceWork.getAllRootOperators();
+                        if(allRoots != null){
+                            outputFile.println("\t\t\t\t\tallRootOperators: ");
+                            outputFile.flush();
+                            for(Operator<? extends OperatorDesc> op : allRoots){
+                                if(op != null){
+                                    outputFile.println("\t\t\t\t\t\tOperator= "+op.getOperatorId());
+                                    outputFile.flush();
+                                }
+                            }
+                        }
+                        TableDesc keyDesc = reduceWork.getKeyDesc();
+                        if(keyDesc != null){
+                            outputFile.println("\t\t\t\t\tkeyDesc: ");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\tTableName: "+keyDesc.getTableName());
+                            outputFile.flush();
+                        }
+                        outputFile.println("\t\t\t\t\tMaxReduceTasks: "+reduceWork.getMaxReduceTasks());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tMinReduceTasks: "+reduceWork.getMinReduceTasks());
+                        outputFile.flush();
+                        ObjectInspector keyObjectInspector = reduceWork.getKeyObjectInspector();
+                        if(keyObjectInspector != null){
+                            outputFile.println("\t\t\t\t\tkeyObjectInspector: ");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\ttoString: "+keyObjectInspector.toString());
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\tTypename: "+keyObjectInspector.getTypeName());
+                            outputFile.flush();
+                            ObjectInspector.Category category = keyObjectInspector.getCategory();
+                            if(category != null){
+                                outputFile.println("\t\t\t\t\t\tCategory: "+category.toString());
+                                outputFile.flush();
+                            }
+                        }
+                        ObjectInspector valueObjectInspector = reduceWork.getValueObjectInspector();
+                        if(valueObjectInspector != null){
+                            outputFile.println("\t\t\t\t\tvalueObjectInspector: ");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\ttoString: "+valueObjectInspector.toString());
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\tTypename: "+valueObjectInspector.getTypeName());
+                            outputFile.flush();
+                            ObjectInspector.Category category = valueObjectInspector.getCategory();
+                            if(category != null){
+                                outputFile.println("\t\t\t\t\t\tCategory: "+category.toString());
+                                outputFile.flush();
+                            }
+                        }
+                        Map<Integer, String> tagToInput = reduceWork.getTagToInput();
+                        if(tagToInput != null){
+                            outputFile.println("\t\t\t\t\ttagToInput: ");
+                            outputFile.flush();
+                            for(Map.Entry<Integer, String> entry : tagToInput.entrySet()){
+                                if(entry != null){
+                                    outputFile.println("\t\t\t\t\t\tTag: "+entry.getKey()+" : Input: "+entry.getValue());
+                                    outputFile.flush();
+                                }
+                            }
+                        }
+                        List<TableDesc> tagToValueDesc = reduceWork.getTagToValueDesc();
+                        if(tagToValueDesc != null){
+                            outputFile.println("\t\t\t\t\ttagToValueDesc: ");
+                            outputFile.flush();
+                            for(TableDesc t1 : tagToValueDesc){
+                                if(t1 != null){
+                                    outputFile.println("\t\t\t\t\t\tTableDesc:");
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\t\tTableName: "+t1.getTableName());
+                                    outputFile.flush();
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        else if(t instanceof MapredLocalTask){
+        else if(t instanceof MapredLocalTask){ //MapRedLocal Stage
             outputFile.println("\n\t\t\tStageType: MapredLocalTask");
             outputFile.flush();
             MapredLocalTask mapRedLocalTask = (MapredLocalTask) t;
@@ -949,15 +1551,188 @@ public class ExaremeGraph {
                 outputFile.flush();
                 outputFile.println("\t\t\t\tisMapRedLocalTask: "+mapRedLocalTask.isMapRedLocalTask());
                 outputFile.flush();
+                MapredLocalWork mapWork = mapRedLocalTask.getWork();
+                if(mapWork != null){
+                    outputFile.println("\t\t\t\thasStagedAlias: "+mapWork.hasStagedAlias());
+                    outputFile.flush();
+                    Path tmpPath = mapWork.getTmpPath();
+                    if(tmpPath != null){
+                        outputFile.println("\t\t\t\ttmpPath: "+tmpPath.toString());
+                        outputFile.flush();
+                    }
+                    Path tmpHDFSPath = mapWork.getTmpHDFSPath();
+                    if(tmpHDFSPath != null){
+                        outputFile.println("\t\t\t\ttmpHDFSPath: "+tmpPath.toString());
+                        outputFile.flush();
+                    }
+
+                    outputFile.println("\t\t\t\taliasToFetchWork: ");
+                    outputFile.flush();
+                    LinkedHashMap<String, FetchWork> aliasToFetchWork = mapWork.getAliasToFetchWork();
+                    if(aliasToFetchWork != null){
+                        for(Map.Entry<String, FetchWork> entry : aliasToFetchWork.entrySet()){
+                            if(entry != null){
+                                outputFile.println("\t\t\t\t\tAlias: "+entry.getKey());
+                                outputFile.flush();
+                                FetchWork value = entry.getValue();
+                                if(value != null){ //Print FetchWork
+                                    outputFile.println("\t\t\t\t\t\tisPartitioned: "+value.isPartitioned());
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\tisNotPartitioned: "+value.isNotPartitioned());
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\tLeastNumRows: "+value.getLeastNumRows());
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\tLimit: "+value.getLimit());
+                                    outputFile.flush();
+                                    Path tblDir = value.getTblDir();
+                                    if(tblDir != null){
+                                        outputFile.println("\t\t\t\t\t\tTableDirectory: "+tblDir);
+                                        outputFile.flush();
+                                    }
+                                    Operator<?> source = value.getSource();
+                                    if(source != null){
+                                        outputFile.println("\t\t\t\t\t\tSource Operator: "+source.getOperatorId());
+                                        outputFile.flush();
+                                        if(source.getChildOperators() != null){
+                                            outputFile.println("\t\t\t\t\t\t\tChildren: "+source.getChildOperators().toString());
+                                            outputFile.flush();
+                                        }
+                                        if(source.getParentOperators() != null){
+                                            outputFile.println("\t\t\t\t\t\t\tParents: "+source.getParentOperators().toString());
+                                            outputFile.flush();
+                                        }
+                                        outputFile.println("\t\t\t\t\t\t\tType: "+source.getType());
+                                        outputFile.flush();
+                                        RowSchema rowSchema = source.getSchema();
+                                        if(rowSchema != null){
+                                            outputFile.println("\t\t\t\t\t\t\tRowSchema: "+rowSchema.toString());
+                                            outputFile.flush();
+                                        }
+                                        outputFile.println("\t\t\t\t\t\t\topAllowedBeforeSortMergeJoin: "+source.opAllowedBeforeSortMergeJoin());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\topAllowedBeforeMapJoin: "+source.opAllowedBeforeMapJoin());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\topAllowedAfterMapJoin: "+source.opAllowedAfterMapJoin());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\tsupportUnionRemoveOptimization: "+source.supportUnionRemoveOptimization());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\tacceptLimitPushdown: "+source.acceptLimitPushdown());
+                                        outputFile.flush();
+                                        outputFile.println("\t\t\t\t\t\t\tcolumnNamesRowResolvedCanBeObtained: "+source.columnNamesRowResolvedCanBeObtained());
+                                        outputFile.flush();
+                                    }
+                                    ListSinkOperator sinkOperator = value.getSink();
+                                    if(sinkOperator != null){
+                                        outputFile.println("\t\t\t\t\t\tListSink Operator: "+sinkOperator.getOperatorId());
+                                        outputFile.flush();
+                                        if(sinkOperator.getChildOperators() != null){
+                                            outputFile.println("\t\t\t\t\t\t\tChildren: "+sinkOperator.getChildOperators().toString());
+                                            outputFile.flush();
+                                        }
+                                        if(sinkOperator.getParentOperators() != null){
+                                            outputFile.println("\t\t\t\t\t\t\tParents: "+sinkOperator.getParentOperators().toString());
+                                            outputFile.flush();
+                                        }
+                                        outputFile.println("\t\t\t\t\t\t\tType: "+sinkOperator.getType());
+                                        outputFile.flush();
+                                        RowSchema rowSchema = sinkOperator.getSchema();
+                                        if(rowSchema != null){
+                                            outputFile.println("\t\t\t\t\t\t\tRowSchema: "+rowSchema.toString());
+                                            outputFile.flush();
+                                        }
+                                        outputFile.println("\t\t\t\t\t\t\tNumRows: "+sinkOperator.getNumRows());
+                                        outputFile.flush();
+                                    }
+
+                                    ArrayList<PartitionDesc> partitionDescs = value.getPartDesc();
+                                    if(partitionDescs != null){
+                                        outputFile.println("\t\t\t\t\t\tPartition Descriptions: ");
+                                        outputFile.flush();
+                                        for(PartitionDesc p : partitionDescs){
+                                            if(p != null) {
+                                                outputFile.println("\t\t\t\t\t\tPartition: ");
+                                                outputFile.flush();
+                                                outputFile.println("\t\t\t\t\t\t\tTableName: "+p.getTableName());
+                                                outputFile.flush();
+                                                outputFile.println("\t\t\t\t\t\t\tBaseFileName: "+p.getBaseFileName());
+                                                outputFile.flush();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    BucketMapJoinContext bucketMapJoinContext = mapWork.getBucketMapjoinContext();
+                    if(bucketMapJoinContext != null){
+                        outputFile.println("\t\t\t\tbucketMapJoinContext: ");
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tMapJoinBigTableAlias: "+bucketMapJoinContext.getMapJoinBigTableAlias());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\ttoString: "+bucketMapJoinContext.toString());
+                        outputFile.flush();
+                    }
+
+                    LinkedHashMap<String, Operator<? extends OperatorDesc>> aliasToWork = mapWork.getAliasToWork();
+                    if(aliasToWork != null){
+                        outputFile.println("\t\t\t\taliasToWork: ");
+                        outputFile.flush();
+                        for(Map.Entry<String, Operator<? extends OperatorDesc>> entry : aliasToWork.entrySet()){
+                            if(entry != null){
+                                outputFile.println("\t\t\t\t\tAlias: "+entry.getKey());
+                                outputFile.flush();
+                                Operator<? extends OperatorDesc> value = entry.getValue();
+                                if(value != null) {
+                                    outputFile.println("\t\t\t\t\t\tOperator: "+value.getOperatorId());
+                                    outputFile.flush();
+                                    if(value.getChildOperators() != null){
+                                        outputFile.println("\t\t\t\t\t\t\tChildren: "+value.getChildOperators().toString());
+                                        outputFile.flush();
+                                    }
+                                    if(value.getParentOperators() != null){
+                                        outputFile.println("\t\t\t\t\t\t\tParents: "+value.getParentOperators().toString());
+                                        outputFile.flush();
+                                    }
+                                    outputFile.println("\t\t\t\t\t\t\tType: "+value.getType());
+                                    outputFile.flush();
+                                    RowSchema rowSchema = value.getSchema();
+                                    if(rowSchema != null){
+                                        outputFile.println("\t\t\t\t\t\t\tRowSchema: "+rowSchema.toString());
+                                        outputFile.flush();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        else if(t instanceof IndexMetadataChangeTask){
+        else if(t instanceof IndexMetadataChangeTask){ //Index Stage
             outputFile.println("\n\t\t\tStageType: IndexMetadataChangeTask");
             outputFile.flush();
             IndexMetadataChangeTask indexMetadataChangeTask = (IndexMetadataChangeTask) t;
             if(indexMetadataChangeTask != null){
                 outputFile.println("\t\t\t\tName: "+indexMetadataChangeTask.getName());
                 outputFile.flush();
+                IndexMetadataChangeWork indexWork = indexMetadataChangeTask.getWork();
+                if(indexWork != null){
+                    outputFile.println("\t\t\t\tDbName: "+indexWork.getDbName());
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\tIndexTbl: "+indexWork.getIndexTbl());
+                    outputFile.flush();
+                    HashMap<String, String> partSpec = indexWork.getPartSpec();
+                    if(partSpec != null){
+                        outputFile.println("\t\t\t\tpartSpec: ");
+                        outputFile.flush();
+                        for(Map.Entry<String, String> entry : partSpec.entrySet()){
+                            if(entry != null){
+                                outputFile.println("\t\t\t\tKey: "+entry.getKey() + " Value: "+entry.getValue());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                }
             }
         }
         else{

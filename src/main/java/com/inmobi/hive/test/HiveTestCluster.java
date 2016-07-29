@@ -23,6 +23,8 @@ import org.apache.hadoop.hive.ql.exec.*;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.mr.ExecMapperContext;
+import org.apache.hadoop.hive.ql.exec.mr.MapRedTask;
+import org.apache.hadoop.hive.ql.exec.mr.MapredLocalTask;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.lib.Node;
@@ -211,54 +213,217 @@ public class HiveTestCluster {
         }
 
         Collection<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> topOps = new LinkedList<>(); //Get Operator Graph roots
-        /*if(stage instanceof FetchTask){
-            stage.getFetchOperator();
-        }*/
-        for(Object o : stage.getTopOperators()){
-            topOps.add((org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>) o);
-        }
 
-        if(topOps.size() > 0){ //
-            List<org.apache.hadoop.hive.ql.exec.Operator> stageOperators = new LinkedList<>();
-            for(org.apache.hadoop.hive.ql.exec.Operator root : topOps) {
-                diveFromOperatorRoot(root, stageOperators);
-            }
+        if(stage instanceof MapRedTask){
+            MapRedTask mapRedStage = (MapRedTask) stage;
+            if(mapRedStage != null){
+                MapredWork mapRedWork = mapRedStage.getWork();
+                if(mapRedWork != null){
+                    System.out.println("MapReduce Stage...");
+                    MapWork mapWork = mapRedWork.getMapWork();
+                    Set<Operator<?>> allRootOperators;
+                    List<org.apache.hadoop.hive.ql.exec.Operator> stageOperators = new LinkedList<>();
+                    if(mapWork != null){
+                        System.out.println("Grabbing Map Part of MapRedWork...");
+                        allRootOperators = mapWork.getAllRootOperators();
+                        if(allRootOperators != null){
+                            for(Object o : allRootOperators){
+                                topOps.add((org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>) o);
+                            }
 
-            if(alreadyVisited == false) {
-                System.out.println("diveInStageFromRooExect: Adding all Nodes from this graph...");
-                for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) { //Add all operators from this graph
-                    OperatorNode myNode = new OperatorNode(tempOp, stage);
-                    exaremeGraph.addNode(myNode);
-                }
-            }
-            else{
-                System.out.println("diveInStageFromRootExec: Nodes of this Stage are already added...");
-            }
+                            if(topOps.size() > 0){
+                                for(org.apache.hadoop.hive.ql.exec.Operator root : topOps) {
+                                    diveFromOperatorRoot(root, stageOperators);
+                                }
 
-            if(alreadyVisited == false) {
-                System.out.println("diveInStageFromRootExec: Adding all Edges from this graph...");
-                for(org.apache.hadoop.hive.ql.exec.Operator someOperator : stageOperators){
-                    List<org.apache.hadoop.hive.ql.exec.Operator> children = someOperator.getChildOperators();
-                    if(children != null){
-                        if(children.size() > 0){
-                            for(org.apache.hadoop.hive.ql.exec.Operator child : children){
-                                DirectedEdge myEdge = new DirectedEdge(someOperator.getOperatorId(), child.getOperatorId(), "DON'T KNOW");
-                                exaremeGraph.addDirectedEdge(myEdge);
+                                if(alreadyVisited == false) {
+                                    System.out.println("diveInStageFromRooExect: Adding all Nodes from this graph...");
+                                    for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) { //Add all operators from this graph
+                                        OperatorNode myNode = new OperatorNode(tempOp, stage);
+                                        exaremeGraph.addNode(myNode);
+                                    }
+                                }
+                                else{
+                                    System.out.println("diveInStageFromRootExec: Nodes of this Stage are already added...");
+                                }
+
+                                if(alreadyVisited == false) {
+                                    System.out.println("diveInStageFromRootExec: Adding all Edges from this graph...");
+                                    for(org.apache.hadoop.hive.ql.exec.Operator someOperator : stageOperators){
+                                        List<org.apache.hadoop.hive.ql.exec.Operator> children = someOperator.getChildOperators();
+                                        if(children != null){
+                                            if(children.size() > 0){
+                                                for(org.apache.hadoop.hive.ql.exec.Operator child : children){
+                                                    DirectedEdge myEdge = new DirectedEdge(someOperator.getOperatorId(), child.getOperatorId(), "DON'T KNOW");
+                                                    exaremeGraph.addDirectedEdge(myEdge);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                else{
+                                    System.out.println("diveInStageFromRootExec: Edges of this Stage are already added...");
+                                }
+
+                                if(alreadyVisited == false) {
+                                    //Build leaves (final Nodes to connect with next roots)
+                                    System.out.println("diveInStageFromRootExec: Creating new leaves...");
+                                    for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) {
+                                        if(tempOp.getChildOperators() != null){
+                                            List<Operator <? extends OperatorDesc>> children = ((List<Operator <? extends OperatorDesc>>) tempOp.getChildOperators());
+                                            if(children.size() == 0){
+                                                leaves.add(tempOp);
+                                            }
+                                        }
+                                        else{
+                                            leaves.add(tempOp);
+                                        }
+                                    }
+                                }
+                                else{
+                                    System.out.println("diveInStageFromRoot: Leaves of this Stage have already been created..");
+                                }
+
+                                if(alreadyVisited == true) {
+                                    return;
+                                }
+
+                            }
+                            else{
+                                System.out.println("diveInStageFromRootExec: No Operators in this Stage!");
+                            }
+                        }
+                    }
+                    ReduceWork reduceWork = mapRedWork.getReduceWork();
+                    if(reduceWork != null){
+                        System.out.println("Grabbing Reduce Part of MapRedWork...");
+                        Set<Operator<?>> reduceRoots = reduceWork.getAllRootOperators();
+                        if(reduceRoots != null){
+                            if(reduceRoots.size() > 0){
+                                for(org.apache.hadoop.hive.ql.exec.Operator root : reduceRoots) {
+                                    diveFromOperatorRoot(root, stageOperators);
+                                    root.setParentOperators(leaves);
+                                    for(Operator<?> l : leaves){
+                                        if(l != null){
+                                            List<Operator<?>> paidia = new LinkedList<>();
+                                            if(l.getChildOperators() == null){
+                                                paidia.add(root);
+                                            }
+                                            else{
+                                                for(Operator<?> p : l.getChildOperators()){
+                                                    if(p != null){
+                                                        paidia.add(p);
+                                                    }
+                                                }
+                                                paidia.add(root);
+                                            }
+                                            l.setChildOperators(paidia);
+
+                                            DirectedEdge myEdge = new DirectedEdge(l.getOperatorId(), root.getOperatorId(),  "DON'T KNOW");
+                                            exaremeGraph.addDirectedEdge(myEdge);
+
+                                        }
+                                    }
+                                }
+
+                                for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) { //Add all operators from this graph
+                                    OperatorNode myNode = new OperatorNode(tempOp, stage);
+                                    exaremeGraph.addNode(myNode);
+                                }
+
+                                for(org.apache.hadoop.hive.ql.exec.Operator someOperator : stageOperators){
+                                    List<org.apache.hadoop.hive.ql.exec.Operator> children = someOperator.getChildOperators();
+                                    if(children != null){
+                                        if(children.size() > 0){
+                                            for(org.apache.hadoop.hive.ql.exec.Operator child : children){
+                                                DirectedEdge myEdge = new DirectedEdge(someOperator.getOperatorId(), child.getOperatorId(), "DON'T KNOW");
+                                                exaremeGraph.addDirectedEdge(myEdge);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                leaves = new LinkedList<>();
+
+                                for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) {
+                                    if(tempOp.getChildOperators() != null){
+                                        List<Operator <? extends OperatorDesc>> children = ((List<Operator <? extends OperatorDesc>>) tempOp.getChildOperators());
+                                        if(children.size() == 0){
+                                            leaves.add(tempOp);
+                                        }
+                                    }
+                                    else{
+                                        leaves.add(tempOp);
+                                    }
+                                }
+
                             }
                         }
                     }
                 }
             }
-            else{
-                System.out.println("diveInStageFromRootExec: Edges of this Stage are already added...");
+        }
+        /*else if(stage instanceof MoveTask){
+            MoveTask moveTask = (MoveTask) stage;
+            if(moveTask != null){
+                MoveWork moveWork = moveTask.getWork();
+                if(moveWork != null){
+                    LoadFileDesc loadFileDesc = moveWork.getLoadFileWork();
+                    if(loadFileDesc != null){
+                        loadFileDesc.
+                    }
+                }
+            }
+        }*/
+        else {
+        /*if(stage instanceof FetchTask){
+            stage.getFetchOperator();
+        }*/
+            System.out.println("Non MapReduceStage...");
+
+            for (Object o : stage.getTopOperators()) {
+                topOps.add((org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>) o);
             }
 
-            //if(previousFinalOperators != null) { //Even if we've been in this stage before, the previousFinalOperators matter
+            if (topOps.size() > 0) { //
+                List<org.apache.hadoop.hive.ql.exec.Operator> stageOperators = new LinkedList<>();
+                for (org.apache.hadoop.hive.ql.exec.Operator root : topOps) {
+                    diveFromOperatorRoot(root, stageOperators);
+                }
+
+                if (alreadyVisited == false) {
+                    System.out.println("diveInStageFromRooExect: Adding all Nodes from this graph...");
+                    for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) { //Add all operators from this graph
+                        OperatorNode myNode = new OperatorNode(tempOp, stage);
+                        exaremeGraph.addNode(myNode);
+                    }
+                } else {
+                    System.out.println("diveInStageFromRootExec: Nodes of this Stage are already added...");
+                }
+
+                if (alreadyVisited == false) {
+                    System.out.println("diveInStageFromRootExec: Adding all Edges from this graph...");
+                    for (org.apache.hadoop.hive.ql.exec.Operator someOperator : stageOperators) {
+                        List<org.apache.hadoop.hive.ql.exec.Operator> children = someOperator.getChildOperators();
+                        if (children != null) {
+                            if (children.size() > 0) {
+                                for (org.apache.hadoop.hive.ql.exec.Operator child : children) {
+                                    DirectedEdge myEdge = new DirectedEdge(someOperator.getOperatorId(), child.getOperatorId(), "DON'T KNOW");
+                                    exaremeGraph.addDirectedEdge(myEdge);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    System.out.println("diveInStageFromRootExec: Edges of this Stage are already added...");
+                }
+
+                //if(previousFinalOperators != null) { //Even if we've been in this stage before, the previousFinalOperators matter
                 //Now add edges from previous final operators to every root operator in this stage
                 //System.out.println("diveInStageFromRootExec: Adding Edges from Previous Final Operators to current Roots...");
                 //for (Operator op: previousFinalOperators) {
-                    //for (Operator root : topOps) {
-                        //DirectedEdge myEdge = new DirectedEdge(op.getOperatorId(), root.getOperatorId(), "CONJUCTIVE");
+                //for (Operator root : topOps) {
+                //DirectedEdge myEdge = new DirectedEdge(op.getOperatorId(), root.getOperatorId(), "CONJUCTIVE");
                         /*exaremeGraph.addDirectedEdge(myEdge);
                     }
                 }
@@ -267,33 +432,81 @@ public class HiveTestCluster {
                 System.out.println("diveInStageFromRootExec: No previousFinalOperators exists!");
             }*/
 
-            if(alreadyVisited == false) {
-                //Build leaves (final Nodes to connect with next roots)
-                System.out.println("diveInStageFromRootExec: Creating new leaves...");
-                for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) {
-                    if(tempOp.getChildOperators() != null){
-                        List<Operator <? extends OperatorDesc>> children = ((List<Operator <? extends OperatorDesc>>) tempOp.getChildOperators());
-                        if(children.size() == 0){
+                if (alreadyVisited == false) {
+                    //Build leaves (final Nodes to connect with next roots)
+                    System.out.println("diveInStageFromRootExec: Creating new leaves...");
+                    for (org.apache.hadoop.hive.ql.exec.Operator tempOp : stageOperators) {
+                        if (tempOp.getChildOperators() != null) {
+                            List<Operator<? extends OperatorDesc>> children = ((List<Operator<? extends OperatorDesc>>) tempOp.getChildOperators());
+                            if (children.size() == 0) {
+                                leaves.add(tempOp);
+                            }
+                        } else {
                             leaves.add(tempOp);
                         }
                     }
-                    else{
-                        leaves.add(tempOp);
+                } else {
+                    System.out.println("diveInStageFromRoot: Leaves of this Stage have already been created..");
+                }
+
+                if (alreadyVisited == true) {
+                    return;
+                }
+            } else {
+                System.out.println("diveInStageFromRootExec: No Operators in this Stage!");
+            }
+        }
+
+        if(previousFinalOperators != null){
+            if(previousFinalOperators.size() > 0){
+                if(topOps != null){
+                    if(topOps.size() > 0){
+                        for(Operator<?> op : topOps){
+                            if(op != null){
+                                if(op.getSchema() != null){
+                                    if(op.getSchema().toString().contains("col")){
+                                        for(Operator<?> leaf : previousFinalOperators){
+                                            if(leaf != null){
+                                                if(leaf.getSchema() != null){
+                                                    if(leaf.getSchema().toString().contains("col")){
+                                                        if(op.getSchema().toString().equals(leaf.getSchema().toString())){
+                                                            List<Operator<?>> children = new LinkedList<>();
+                                                            List<Operator<?>> parents = new LinkedList<>();
+                                                            if(op.getParentOperators() != null){
+                                                                for(Operator<?> e : op.getParentOperators()){
+                                                                    parents.add(e);
+                                                                }
+                                                            }
+                                                            if(parents.contains(leaf) == false){
+                                                                parents.add(leaf);
+                                                                op.setParentOperators(parents);
+                                                            }
+                                                            if(leaf.getChildOperators() != null){
+                                                                for(Operator<?> e : op.getChildOperators()){
+                                                                    children.add(e);
+                                                                }
+                                                            }
+                                                            if(children.contains(op) == false){
+                                                                children.add(op);
+                                                                leaf.setChildOperators(children);
+                                                            }
+
+                                                            DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), op.getOperatorId(), "LEAF TO ROOT");
+                                                            exaremeGraph.addDirectedEdge(e);
+                                                            System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + op.getOperatorId());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
-            else{
-                System.out.println("diveInStageFromRoot: Leaves of this Stage have already been created..");
-            }
-
-            if(alreadyVisited == true) {
-                return;
-            }
         }
-        else{
-            System.out.println("diveInStageFromRootExec: No Operators in this Stage!");
-        }
-
 
         if(alreadyVisited == false)
             visitedStages.add(stage);
@@ -986,7 +1199,6 @@ public class HiveTestCluster {
             exaremeGraphSimpler.discoverRoots(); //Again
 
             exaremeGraphSimpler.discoverCurrentLeaves();
-
             //outputFile.println("============================================ QUERY ===============================================\n");
             //outputFile.println("\nQuery: ["+queryPlan.getQueryString()+"]\n");
             //outputFile.flush();
@@ -1076,6 +1288,13 @@ public class HiveTestCluster {
 
         }
 
+        if(queryPlan.getQueryString().equals("use tpcds_db")) {
+            System.out.println("Skipping DATABASE command query...");
+        }
+        else{
+            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler);
+            queryBuilder.createExaremeOperators(outputFile);
+        }
     }
 
     public void discoverStages(List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > rootTasks, List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > stagesList){
@@ -1257,18 +1476,6 @@ public class HiveTestCluster {
                                     }
                                 }
                             }
-                                /*Map<String, Map<String, Long>> mapCounters = queryPlan.getCounters();
-                                if(mapCounters != null) {
-                                    outputFile.println("\nPrinting map of Counters...");
-                                    for (Map.Entry<String, Map<String, Long>> entry : mapCounters.entrySet()) {
-                                        outputFile.println("Accessing map in entry: " + entry.getKey());
-                                        Map<String, Long> counters = entry.getValue();
-                                        if(counters != null)
-                                            for (Map.Entry<String, Long> entry1 : counters.entrySet()) {
-                                                outputFile.println("\t" + entry1.getKey() + " : " + entry1.getValue());
-                                            }
-                                    }
-                                }*/
 
                             compileLogFile.println("\t\tAccessing InputSet...");
                             compileLogFile.flush();
