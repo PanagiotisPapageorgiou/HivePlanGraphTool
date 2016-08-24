@@ -1,5 +1,4 @@
 package com.inmobi.hive.test;
-
 /**
  * Created by panos on 11/5/2016.
  */
@@ -13,9 +12,10 @@ public class OpGraphProducerMain {
         String queryScript = "src/main/resources/scripts/tpcds18Case1.sql";
         String exaremeOpGraphFile = "src/main/resources/files/exaremeGraphsLog.txt";
         String executionResultsFile = "src/main/resources/files/resultsLog.txt";
+        String exaremePlanFile = "src/main/resources/files/exaremePlan.txt";
 
-        int numberOfDatanodes = 6;
-        int numberOfTaskTrackers = 4;
+        int numberOfDatanodes = 1;
+        int numberOfTaskTrackers = 1;
         int maxDynamicPartitions = 1000;
         int maxDynamicPartitionsPerNode = 100;
         boolean dynamicPartitionsEnabled = true;
@@ -34,7 +34,7 @@ public class OpGraphProducerMain {
 
         try{
             System.out.println("Run Query...");
-            testTool.runQueryScript(exaremeOpGraphFile, executionResultsFile);
+            testTool.runQueryScript(exaremeOpGraphFile, executionResultsFile, exaremePlanFile);
         }
         catch(Throwable ex){
             System.out.println("Query execution failed! Exception: "+ex.toString());

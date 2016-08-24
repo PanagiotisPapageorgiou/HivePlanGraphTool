@@ -87,18 +87,167 @@ public class ExaremePlan {
 
     }
 
-    /*public void printExaremePlan(PrintWriter outputFile){
-        outputFile.println("[\n");
-        if(containers != null){
-            outputFile.println("\t\"containers\": [\n");
+    public void printExaremePlan(PrintWriter outputFile) {
+
+        outputFile.println("{\n");
+        outputFile.flush();
+
+        //Containers
+            outputFile.println("\t\"containers:\": [\n");
+            outputFile.flush();
+
             for(Container c : containers){
-                if(c != null){
-                    c.printContainer();
-                    outputFile.println();
-                }
+                outputFile.println("\t\t{\n");
+                outputFile.flush();
+
+                    outputFile.println("\t\t\t\"name\": \""+c.getName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"IP\": \""+c.getIP()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"port\": \""+c.getPort()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"data_transfer_port\": \""+c.getData_transfer_port()+"\"\n");
+                    outputFile.flush();
+
+                outputFile.println("\t\t}\n");
+                outputFile.flush();
             }
-        }
-        outputFile.println("]\n");
-    }*/
+
+            outputFile.println("\t],\n");
+            outputFile.flush();
+
+        //Operators
+            outputFile.println("\t\"operators:\": [\n");
+            outputFile.flush();
+
+            int i = 0;
+            for(ExaremeOperator e : operators){
+                outputFile.println("\t\t{\n");
+                outputFile.flush();
+
+                    outputFile.println("\t\t\t\"container\": \""+e.getContainerName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"operator\": \""+e.getOperatorName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"name\": \""+e.getResultsName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"queryString\": \""+e.getQueryString()+"\",\n");
+                    outputFile.flush();
+
+                    outputFile.println("\t\t\t\"parameters\": [\n");
+                    outputFile.flush();
+
+                    //Print parameters
+                    int j = 0;
+                    for(Parameter p : e.getParameters()){
+                        outputFile.println("\t\t\t\t[\n");
+                        outputFile.flush();
+
+                        if(p instanceof NumParameter){
+                            NumParameter nP = (NumParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\""+nP.getValue()+"\"\n");
+                            outputFile.flush();
+                        }
+                        else{
+                            StringParameter sP = (StringParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+sP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\""+sP.getValue()+"\"\n");
+                            outputFile.flush();
+                        }
+
+                        if(j == e.getParameters().size() - 1)
+                            outputFile.println("\t\t\t\t]\n");
+                        else
+                            outputFile.println("\t\t\t\t],\n");
+                        outputFile.flush();
+                        j++;
+                    }
+
+                    outputFile.println("\t\t\t]\n");
+                    outputFile.flush();
+
+                if(i == operators.size() - 1)
+                    outputFile.println("\t\t}\n");
+                else
+                    outputFile.println("\t\t},\n");
+                outputFile.flush();
+                i++;
+            }
+
+            outputFile.println("\t],\n");
+            outputFile.flush();
+
+        //Op_Links
+            outputFile.println("\t\"op_links:\": [\n");
+            outputFile.flush();
+
+            int k = 0;
+            for(OpLink o : opLinks){
+                outputFile.println("\t\t{\n");
+                outputFile.flush();
+
+                    outputFile.println("\t\t\t\"container\": \""+o.getContainerName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"from\": \""+o.getFromTable()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"to\": \""+o.getToTable()+"\",\n");
+                    outputFile.flush();
+
+                    outputFile.println("\t\t\t\"parameters\": [\n");
+                    outputFile.flush();
+
+                    //Print parameters
+                    int j = 0;
+                    for(Parameter p : o.getParameters()){
+                        outputFile.println("\t\t\t\t[\n");
+                        outputFile.flush();
+
+                        if(p instanceof NumParameter){
+                            NumParameter nP = (NumParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\""+nP.getValue()+"\"\n");
+                            outputFile.flush();
+                        }
+                        else{
+                            StringParameter sP = (StringParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+sP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\""+sP.getValue()+"\"\n");
+                            outputFile.flush();
+                        }
+
+                        if(j == o.getParameters().size() - 1)
+                            outputFile.println("\t\t\t\t]\n");
+                        else
+                            outputFile.println("\t\t\t\t],\n");
+                        outputFile.flush();
+                        j++;
+                    }
+
+                    outputFile.println("\t\t\t]\n");
+                    outputFile.flush();
+
+
+                if(k == opLinks.size() - 1)
+                    outputFile.println("\t\t}\n");
+                else
+                    outputFile.println("\t\t},\n");
+                outputFile.flush();
+                k++;
+            }
+
+            outputFile.println("\t],\n");
+            outputFile.flush();
+
+        //Pragma
+        outputPragma(outputFile);
+
+        outputFile.println("}");
+        outputFile.flush();
+    }
 
 }

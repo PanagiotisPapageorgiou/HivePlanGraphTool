@@ -41,7 +41,7 @@ public class testCaseTool {
         this.testSuite.shutdownTestCluster();
     }
 
-    public void runQueryScript(String compileLogPath, String resultsLogPath) throws Throwable {
+    public void runQueryScript(String compileLogPath, String resultsLogPath, String exaremePlanPath) throws Throwable {
         File f = new File(compileLogPath);
         if(f.exists() && !f.isDirectory()) {
             f.delete();
@@ -66,7 +66,7 @@ public class testCaseTool {
             throw new RuntimeException("Failed to open FileOutputStream for outputQuery.txt", var8);
         }
 
-        this.testSuite.executeScript(this.queryScriptPath, (Map)null, (List)null, compileLogFile, resultsLogFile, this.flag);
+        this.testSuite.executeScript(this.queryScriptPath, (Map)null, (List)null, compileLogFile, resultsLogFile, exaremePlanPath, this.flag);
         compileLogFile.close();
         resultsLogFile.close();
     }
@@ -79,6 +79,7 @@ public class testCaseTool {
         if(this.resultsLogFile != null) {
             this.resultsLogFile.close();
         }
+
 
     }
 }

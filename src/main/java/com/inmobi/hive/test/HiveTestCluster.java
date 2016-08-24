@@ -129,13 +129,13 @@ public class HiveTestCluster {
         }
     }*/
 
-    public List<String> executeStatements(List<String> statements, PrintWriter compileLogFile, PrintWriter resultsLogFile, String flag) throws HiveSQLException {
+    public List<String> executeStatements(List<String> statements, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag) throws HiveSQLException {
         List<String> results = new LinkedList<String>();
 
         long i = 1;
 
         for (String statement : statements) {
-            results.addAll(processStatement(statement, compileLogFile, resultsLogFile, flag, i));
+            results.addAll(processStatement(statement, compileLogFile, resultsLogFile, exaremePlanPath, flag, i));
             i++;
         }
 
@@ -227,7 +227,7 @@ public class HiveTestCluster {
                         System.out.println("Grabbing Map Part of MapRedWork...");
                         allRootOperators = mapWork.getAllRootOperators();
                         if(allRootOperators != null){
-                            for(Object o : allRootOperators){
+                            for(Operator<?> o : allRootOperators){
                                 topOps.add((org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>) o);
                             }
 
@@ -290,7 +290,8 @@ public class HiveTestCluster {
 
                             }
                             else{
-                                System.out.println("diveInStageFromRootExec: No Operators in this Stage!");
+                                System.out.println("diveInStageFromRootExec: No Operators in MAP part of this Stage!");
+                                System.exit(1);
                             }
                         }
                     }
@@ -855,13 +856,125 @@ public class HiveTestCluster {
 
     }
 
-    public void createExaremeOutputFromExec(List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> roots, PrintWriter outputFile, QueryPlan queryPlan, List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> stagesList){
+    public String getDataBaseOfEntity(String entityString){
+        String dbName = "";
+
+        if(entityString.contains("@")){
+            String[] entityParts = entityString.split("@");
+            dbName = entityParts[0];
+        }
+        else{
+            System.out.println("Invalid entity string! Does not contain @!");
+            System.exit(1);
+        }
+
+        return dbName;
+
+    }
+
+    public boolean isPartition(String entityString){
+
+        if(entityString.contains("@")){
+            String[] entityParts = entityString.split("@");
+            if(entityParts.length == 2){ //IsTable
+                return false;
+            }
+            else {
+                if (entityParts.length == 1) {
+                    System.out.println("Invalid entity string! Does not contain anything after DBNAME!");
+                    System.exit(1);
+                }
+                else{
+                    return true;
+                }
+            }
+        }
+        else{
+            System.out.println("Invalid entity string! Does not contain @!");
+            System.exit(1);
+        }
+
+        return false;
+
+    }
+
+    public LinkedHashMap<String, String> getPartitionKeysAndValues(String partitionName){
+        //Name Should be beginning with @
+
+        LinkedHashMap<String, String> partitionKeyValuePairs = new LinkedHashMap<>();
+
+        if(partitionName.contains("@")){
+            String[] partitionDirs = partitionName.split("@");
+            for(String partition : partitionDirs){
+                if(partition.length() == 0) continue;
+                String[] keyValueTuple = partition.split("=");
+                partitionKeyValuePairs.put(keyValueTuple[0], keyValueTuple[1]);
+            }
+        }
+        else{
+            System.out.println("PartitionName does not contain any @!");
+            System.exit(0);
+        }
+
+        return partitionKeyValuePairs;
+
+    }
+
+    public String getTableNameOfEntity(String entityString){
+        String tbName = "";
+
+        if(entityString.contains("@")){
+            String[] entityParts = entityString.split("@");
+            tbName = entityParts[1];
+        }
+        else{
+            System.out.println("Invalid entity string! Does not contain @!");
+            System.exit(1);
+        }
+
+        return tbName;
+
+    }
+
+    public String getPartitionNameOfEntity(String entityString){
+        String partName = "@";
+
+        if(entityString.contains("@")){
+            String[] entityParts = entityString.split("@");
+            if(entityParts.length > 2){
+                for(int i=2; i < entityParts.length; i++){
+                    if(i == entityParts.length - 1)
+                        partName=partName+entityParts[i];
+                    else
+                        partName=partName+entityParts[i]+"@";
+                }
+            }
+            else{
+                System.out.println("Invalid entity string! Does not contain more than 2 @ for partition locating...!");
+                System.exit(1);
+            }
+        }
+        else{
+            System.out.println("Invalid entity string! Does not contain @!");
+            System.exit(1);
+        }
+
+        return partName;
+
+    }
+
+    public void createExaremeOutputFromExec(List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> roots, PrintWriter outputFile, QueryPlan queryPlan, List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> stagesList, String exaremePlanPath){
 
         ExaremeGraph exaremeGraphSimpler = new ExaremeGraph("Hive Native(Simplified)");
 
         List<Task> visitedStagesSimpler = new LinkedList<>();
 
         List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> newRoots = new LinkedList<>();
+
+        List<MyTable> inputTables = new LinkedList<>();
+        List<MyPartition> inputPartitions = new LinkedList<>();
+        List<MyTable> outputTables = new LinkedList<>();
+        List<MyPartition> outputPartitions = new LinkedList<>();
 
         outputFile.println("\t=======================Accessing QueryPlan Information===========================");
         outputFile.flush();
@@ -917,8 +1030,32 @@ public class HiveTestCluster {
         HashSet<ReadEntity> inputSet = queryPlan.getInputs();
         if(inputSet != null) {
             for (ReadEntity readEntity : inputSet) {
+                MyTable inputTable = new MyTable();
+                MyPartition inputPartition = new MyPartition();
+
                 outputFile.println("\t\t\tEntity in InputSet (to String): " + readEntity.toString());
                 outputFile.flush();
+
+                if(readEntity.toString().contains("database:") == false) {
+                    if(readEntity.toString().contains("file:")){
+                        System.out.println("InputEntity is a file!");
+                        inputTable = new MyTable(readEntity.toString(), true);
+                    }
+                    else {
+                        if (isPartition(readEntity.toString())) {
+                            inputPartition.setBelongingDatabaseName(getDataBaseOfEntity(readEntity.toString()));
+                            inputPartition.setBelongingTableName(getTableNameOfEntity(readEntity.toString()));
+                            inputPartition.setPartitionName(getPartitionNameOfEntity(readEntity.toString()));
+                            System.out.println("Detected new InputPartition! - DB: " + inputPartition.getBelongingDataBaseName() + " Table: " + inputPartition.getBelogingTableName() + " - Partition: " + inputPartition.getPartitionName());
+                        } else {
+                            System.out.println("Detected new InputTable!");
+                            inputTable.setBelongingDatabaseName(getDataBaseOfEntity(readEntity.toString()));
+                            inputTable.setTableName(getTableNameOfEntity(readEntity.toString()));
+                            System.out.println("Detected new InputTable! - DB: " + inputTable.getBelongingDataBaseName() + " Table: " + inputTable.getTableName());
+                        }
+                    }
+                }
+
                 List<String> accessColumns = readEntity.getAccessedColumns();
                 if (accessColumns != null) {
                     outputFile.println("\t\t\t\tPrinting Accessed Columns of Entity...");
@@ -977,6 +1114,20 @@ public class HiveTestCluster {
                         outputFile.flush();
                         outputFile.println("\t\t\t\t\tPort: " + location.getPort());
                         outputFile.flush();
+
+                        if(readEntity.toString().contains("database:") == false) {
+                            if(readEntity.toString().contains("file:") == false){
+                                if (isPartition(readEntity.toString())) {
+                                    inputPartition.setURIdetails(location);
+                                    System.out.println("Added URI details to inputPartition!");
+                                }
+                                else{
+                                    inputTable.setURIdetails(location);
+                                    System.out.println("Added URI details to inputTable!");
+                                }
+                            }
+                        }
+
                     }
                 }
                 catch(java.lang.Exception ex){
@@ -1020,6 +1171,13 @@ public class HiveTestCluster {
                         outputFile.println("\t\t\t\t\tPartition Path: "+partitionPath.toString());
                         outputFile.flush();
                     }
+
+                    inputPartition.setBucketColsList(bucketColsList);
+                    inputPartition.setBucketCount(partition.getBucketCount());
+                    inputPartition.setAllFields(partition.getCols());
+                    inputPartition.setPartitionHDFSPath(partitionPath);
+
+                    System.out.println("Added extra partition information to InputPartition!");
                 }
 
                 Table table = readEntity.getTable();
@@ -1069,10 +1227,73 @@ public class HiveTestCluster {
                             }
                         }
                     }
+
+                    if(readEntity.toString().contains("database:") == false) {
+                        if (readEntity.toString().contains("file:") == false) {
+                            if (isPartition(readEntity.toString())) {
+                                System.out.println("Using PartitionName to locate PartitionKeys and PartitionValues for this Partition...");
+                                LinkedHashMap<String, String> keysAndValuesPairs = getPartitionKeysAndValues(getPartitionNameOfEntity(readEntity.toString()));
+                                inputPartition.setKeyValuePairs(keysAndValuesPairs);
+                                List<FieldSchema> partitionKeysToAdd = new LinkedList<>();
+                                List<String> partitionValuesToAdd = new LinkedList<>();
+                                for (Map.Entry<String, String> entry : keysAndValuesPairs.entrySet()) {
+                                    if (entry != null) {
+                                        for (FieldSchema f : partitionKeys) {
+                                            if (f.getName().equals(entry.getKey())) {
+                                                partitionKeysToAdd.add(f);
+                                                partitionValuesToAdd.add(entry.getValue());
+                                                System.out.println("Adding Key: " + entry.getKey() + " of Type: " + f.getType() + " and Value: " + entry.getValue() + " to inputPartition!");
+                                            }
+                                        }
+                                    }
+                                }
+
+                                inputPartition.setAllPartitionKeys(partitionKeysToAdd);
+                                inputPartition.setAllPartitionValues(partitionValuesToAdd);
+
+                                System.out.println("Added key-value pairs to Partition!");
+
+                            } else {
+                                inputTable.setAllCols(allCols);
+                                inputTable.setAllFields(allFields);
+                                inputTable.setTableHDFSPath(dL);
+                                inputTable.setAllPartitionKeys(partitionKeys);
+
+                                if (partitionKeys == null) {
+                                    inputTable.setHasPartitions(false);
+                                } else {
+                                    if (partitionKeys.size() > 0) {
+                                        inputTable.setHasPartitions(true);
+                                    } else {
+                                        inputTable.setHasPartitions(false);
+                                    }
+                                }
+                                System.out.println("Set AllCols, AllFields, HDFS Path, PartitionKeys for inputTable!");
+                            }
+                        }
+                    }
+
                 }
 
                 outputFile.println("\t\t\tIsDirect: " + readEntity.isDirect());
                 outputFile.flush();
+
+                if(readEntity.toString().contains("database:") == false) {
+                    if(readEntity.toString().contains("file:")){
+                        inputTables.add(inputTable);
+                        System.out.println("Added InputFile to List!");
+                    }
+                    else {
+                        if (isPartition(readEntity.toString())) {
+                            inputPartitions.add(inputPartition);
+                            System.out.println("Added InputPartiion to List!");
+                        } else {
+                            inputTables.add(inputTable);
+                            System.out.println("Added InputTable to List!");
+                        }
+                    }
+                }
+
             }
         }
 
@@ -1081,24 +1302,244 @@ public class HiveTestCluster {
         HashSet<WriteEntity> outputSet = queryPlan.getOutputs();
         if(outputSet != null) {
             for (WriteEntity writeEntity : outputSet) {
+                MyTable outputTable = new MyTable();
+                MyPartition outputPartition = new MyPartition();
+
                 outputFile.println("\t\t\tEntity in OutputSet (to String): " + writeEntity.toString());
                 outputFile.flush();
-                WriteEntity.WriteType writeType = writeEntity.getWriteType();
-                if(writeType != null) {
-                    outputFile.println("\t\t\tWriteType: " + writeType.toString());
+
+                if(writeEntity.toString().contains("database:") == false) {
+                    if(writeEntity.toString().contains("file:") == false) {
+                        if (isPartition(writeEntity.toString())) {
+                            outputPartition.setBelongingDatabaseName(getDataBaseOfEntity(writeEntity.toString()));
+                            outputPartition.setBelongingTableName(getTableNameOfEntity(writeEntity.toString()));
+                            outputPartition.setPartitionName(getPartitionNameOfEntity(writeEntity.toString()));
+                            System.out.println("Detected new InputPartition! - DB: " + outputPartition.getBelongingDataBaseName() + " Table: " + outputPartition.getBelogingTableName() + " - Partition: " + outputPartition.getPartitionName());
+                        } else {
+                            System.out.println("Detected new InputTable!");
+                            outputTable.setBelongingDatabaseName(getDataBaseOfEntity(writeEntity.toString()));
+                            outputTable.setTableName(getTableNameOfEntity(writeEntity.toString()));
+                            System.out.println("Detected new InputTable! - DB: " + outputTable.getBelongingDataBaseName() + " Table: " + outputTable.getTableName());
+                        }
+                    }
+                    else{
+                        outputTable = new MyTable(writeEntity.toString(), true);
+                        System.out.println("OutputEntity is a file!");
+                    }
+                }
+
+                Path pathD = writeEntity.getD();
+                if(pathD != null){
+                    outputFile.println("\t\t\t\tgetD: "+pathD.toString());
                     outputFile.flush();
                 }
-                Path path = writeEntity.getD();
-                if(path != null) {
-                    outputFile.println("\t\t\tPath: " + path.toString());
+
+                try {
+                    URI location = writeEntity.getLocation();
+                    if(location != null) {
+                        outputFile.println("\t\t\t\tURI details: ");
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tAuthority: " + location.getAuthority());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tFragment: " + location.getFragment());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tHost: " + location.getHost());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tPath: " + location.getPath());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tQuery: " + location.getQuery());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRaw Authority: " + location.getRawAuthority());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRaw Fragment: " + location.getRawFragment());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawPath: " + location.getRawPath());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawQuery: " + location.getRawQuery());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tRawSchemeSpecificPart: " + location.getRawSchemeSpecificPart());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tScheme: " + location.getScheme());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tSchemeSpecificPart: " + location.getSchemeSpecificPart());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tUserInfo: " + location.getUserInfo());
+                        outputFile.flush();
+                        outputFile.println("\t\t\t\t\tPort: " + location.getPort());
+                        outputFile.flush();
+
+                        if(writeEntity.toString().contains("database:") == false) {
+                            if(writeEntity.toString().contains("file:") == false) {
+                                if (isPartition(writeEntity.toString())) {
+                                    outputPartition.setURIdetails(location);
+                                    System.out.println("Added URI details to outputPartition!");
+                                } else {
+                                    outputTable.setURIdetails(location);
+                                    System.out.println("Added URI details to outputTable!");
+                                }
+                            }
+                        }
+
+                    }
+                }
+                catch(java.lang.Exception ex){
+                    outputFile.println("\t\t\t\tURI: Failed to get URI!");
                     outputFile.flush();
                 }
-                outputFile.println("\t\t\tName: "+writeEntity.getName());
-                outputFile.flush();
+
+                Partition partition = writeEntity.getP();
+                if(partition != null){
+                    outputFile.println("\t\t\t\tPartition details: ");
+                    outputFile.flush();
+                    List<String> bucketColsList = partition.getBucketCols();
+                    if(bucketColsList != null){
+                        outputFile.println("\t\t\t\t\tbucketCols: "+bucketColsList.toString());
+                        outputFile.flush();
+                    }
+                    outputFile.println("\t\t\t\t\tbucketCount: "+partition.getBucketCount());
+                    outputFile.flush();
+                    List<FieldSchema> colsFieldSchemas = partition.getCols();
+                    if(colsFieldSchemas != null){
+                        outputFile.println("\t\t\t\t\tCols FieldSchemas: ");
+                        outputFile.flush();
+                        for(FieldSchema f : colsFieldSchemas){
+                            if(f != null){
+                                outputFile.println("\t\t\t\t\t\tCol FieldSchema(toString): "+f.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                    outputFile.println("\t\t\t\t\tCompleteName: "+partition.getCompleteName());
+                    outputFile.flush();
+                    Path dataLocation = partition.getDataLocation();
+                    if(dataLocation != null){
+                        outputFile.println("\t\t\t\t\tData Location: "+dataLocation.toString());
+                        outputFile.flush();
+                    }
+                    outputFile.println("\t\t\t\t\tLocation: "+partition.getLocation());
+                    outputFile.flush();
+                    Path partitionPath = partition.getPartitionPath();
+                    if(partitionPath != null){
+                        outputFile.println("\t\t\t\t\tPartition Path: "+partitionPath.toString());
+                        outputFile.flush();
+                    }
+
+                    outputPartition.setBucketColsList(bucketColsList);
+                    outputPartition.setBucketCount(partition.getBucketCount());
+                    outputPartition.setAllFields(partition.getCols());
+                    outputPartition.setPartitionHDFSPath(partitionPath);
+
+                    System.out.println("Added extra partition information to OutputPartition!");
+                }
+
                 Table table = writeEntity.getTable();
-                if(table != null) {
-                    outputFile.println("\t\t\tTable Name: " + table.getCompleteName());
+                if(table != null){
+                    outputFile.println("\t\t\t\tTable details: ");
                     outputFile.flush();
+                    outputFile.println("\t\t\t\t\tCompleteName: "+table.getCompleteName());
+                    outputFile.flush();
+                    Path dL = table.getDataLocation();
+                    if(dL != null){
+                        outputFile.println("\t\t\t\t\tDataLocation: "+dL.toString());
+                        outputFile.flush();
+                    }
+                    List<FieldSchema> allCols = table.getAllCols();
+                    if(allCols != null){
+                        outputFile.println("\t\t\t\t\tAllCols: ");
+                        outputFile.flush();
+                        for(FieldSchema col : allCols){
+                            if(col != null) {
+                                outputFile.println("\t\t\t\t\t\tCol: " +col.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+
+                    ArrayList<StructField> allFields = table.getFields();
+                    if(allFields != null){
+                        outputFile.println("\t\t\t\t\tAllFields: ");
+                        outputFile.flush();
+                        for(StructField field : allFields){
+                            if(field != null){
+                                outputFile.println("\t\t\t\t\t\tFieldName: " +field.getFieldName());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                    outputFile.println("\t\t\t\t\tOwner: "+table.getOwner());
+                    outputFile.flush();
+                    List<FieldSchema> partitionKeys = table.getPartitionKeys();
+                    if(partitionKeys != null){
+                        outputFile.println("\t\t\t\t\tPartition Keys: ");
+                        outputFile.flush();
+                        for(FieldSchema col : partitionKeys){
+                            if(col != null) {
+                                outputFile.println("\t\t\t\t\t\tPartitionKey: " +col.toString());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+
+                    if(writeEntity.toString().contains("database:") == false) {
+                        if (writeEntity.toString().contains("file:") == false) {
+                            if (isPartition(writeEntity.toString())) {
+                                System.out.println("Using PartitionName to locate PartitionKeys and PartitionValues for this Partition...");
+                                LinkedHashMap<String, String> keysAndValuesPairs = getPartitionKeysAndValues(getPartitionNameOfEntity(writeEntity.toString()));
+                                outputPartition.setKeyValuePairs(keysAndValuesPairs);
+                                List<FieldSchema> partitionKeysToAdd = new LinkedList<>();
+                                List<String> partitionValuesToAdd = new LinkedList<>();
+                                for (Map.Entry<String, String> entry : keysAndValuesPairs.entrySet()) {
+                                    if (entry != null) {
+                                        for (FieldSchema f : partitionKeys) {
+                                            if (f.getName().equals(entry.getKey())) {
+                                                partitionKeysToAdd.add(f);
+                                                partitionValuesToAdd.add(entry.getValue());
+                                                System.out.println("Adding Key: " + entry.getKey() + " of Type: " + f.getType() + " and Value: " + entry.getValue() + " to inputPartition!");
+                                            }
+                                        }
+                                    }
+                                }
+
+                                outputPartition.setAllPartitionKeys(partitionKeysToAdd);
+                                outputPartition.setAllPartitionValues(partitionValuesToAdd);
+
+                                System.out.println("Added key-value pairs to Partition!");
+
+                            } else {
+                                outputTable.setAllCols(allCols);
+                                outputTable.setAllFields(allFields);
+                                outputTable.setTableHDFSPath(dL);
+                                outputTable.setAllPartitionKeys(partitionKeys);
+
+                                if (partitionKeys == null) {
+                                    outputTable.setHasPartitions(false);
+                                } else {
+                                    if (partitionKeys.size() > 0) {
+                                        outputTable.setHasPartitions(true);
+                                    } else {
+                                        outputTable.setHasPartitions(false);
+                                    }
+                                }
+                                System.out.println("Set AllCols, AllFields, HDFS Path, PartitionKeys for outputTable!");
+                            }
+                        }
+                    }
+                }
+
+                if(writeEntity.toString().contains("database:") == false) {
+                    if(writeEntity.toString().contains("file:") == false) {
+                        if (isPartition(writeEntity.toString())) {
+                            outputPartitions.add(outputPartition);
+                            System.out.println("Added OutputPartition to List!");
+                        } else {
+                            outputTables.add(outputTable);
+                            System.out.println("Added OutputTable to List!");
+                        }
+                    }
+                    else{
+                        outputTables.add(outputTable);
+                        System.out.println("Added OutputFile to List!");
+                    }
                 }
             }
         }
@@ -1288,12 +1729,173 @@ public class HiveTestCluster {
 
         }
 
+        //Creating exaremePlan
         if(queryPlan.getQueryString().equals("use tpcds_db")) {
             System.out.println("Skipping DATABASE command query...");
         }
         else{
-            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler);
+
+            //Build Queries for Exareme Operators
+            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions);
             queryBuilder.createExaremeOperators(outputFile);
+
+
+            List<ExaremeOperator> exaremeOperators = new LinkedList<>();
+            List<OperatorQuery> allOperatorQueries = queryBuilder.getQueryList();
+
+            int l = 0;
+            for(OperatorQuery opQuery : allOperatorQueries){
+                //String queryString = "{"+opQuery.getOutputTableNames().toString()+"\n"+opQuery.getInputTableNames().toString()+"\n"+opQuery.getDataBasePath()+"\n"+opQuery.getExaremeQueryString()+"};";
+                List<Parameter> parameterList = new LinkedList<>();
+                StringParameter behaviourP = new StringParameter("behavior", "store_and_forward");
+                parameterList.add(behaviourP);
+                StringParameter categoryP = new StringParameter("category", "exe_"+opQuery.getOutputTableNames().get(0));
+                parameterList.add(categoryP);
+                NumParameter memoryP = new NumParameter("memoryPercentage", 1);
+                parameterList.add(memoryP);
+
+                ExaremeOperator exaOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.process.ExecuteSelect", opQuery.getExaremeOutputTableName(), opQuery.getExaremeQueryString(), parameterList, opQuery.getInputTableNames(), opQuery.getOutputTableNames(), l);
+                exaremeOperators.add(exaOp);
+                l++;
+            }
+
+            OperatorQuery finalOpQuery = allOperatorQueries.get(allOperatorQueries.size()-1);
+            //String queryString = "{"+finalOpQuery.getOutputTableNames().toString()+"\n"+finalOpQuery.getOutputTableNames().toString()+"\n"+finalOpQuery.getDataBasePath()+"\n"+"select * from "+finalOpQuery.getOutputTableNames().get(0)+"};";
+            String resultsName = finalOpQuery.getOutputTableNames().get(0);
+            resultsName = "TR_"+resultsName+"_P_0";
+
+            List<Parameter> parameterList = new LinkedList<>();
+            StringParameter behaviourP = new StringParameter("behavior", "store_and_forward");
+            parameterList.add(behaviourP);
+            StringParameter categoryP = new StringParameter("category", "tab_"+finalOpQuery.getOutputTableNames().get(0));
+            parameterList.add(categoryP);
+            NumParameter memoryP = new NumParameter("memoryPercentage", 1);
+            parameterList.add(memoryP);
+
+            ExaremeOperator exaOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.data.TableUnionReplicator", resultsName, finalOpQuery.getExaremeQueryString(), parameterList, finalOpQuery.getInputTableNames(), finalOpQuery.getOutputTableNames(), l);
+            exaremeOperators.add(exaOp);
+
+            System.out.println("===============================Constructing Exareme Plan...=====================================");
+            outputFile.println("===============================Constructing Exareme Plan...=====================================");
+            outputFile.flush();
+            //Build Containers for Exareme Plan
+            List<Container> containers = new LinkedList<>();
+            Container singleNode = new Container("c0", "127.0.0.1_container_127.0.0.1", 1099, 8088);
+            containers.add(singleNode);
+
+            System.out.println("\n\t------Containers------");
+            outputFile.println("\n\t------Containers------");
+            outputFile.flush();
+            for(Container c : containers) {
+                System.out.println("\t\tName: "+c.getName()+" - IP: "+c.getIP()+" - Data_Transfer_Port: "+c.getData_transfer_port()+" Port: "+c.getPort());
+                outputFile.println("\t\tName: "+c.getName()+" - IP: "+c.getIP()+" - Data_Transfer_Port: "+c.getData_transfer_port()+" Port: "+c.getPort());
+                outputFile.flush();
+            }
+
+            //Print Exareme Plan Operators Section
+            System.out.println("\n\t------Operators------");
+            outputFile.println("\n\t------Operators------");
+            outputFile.flush();
+            for(ExaremeOperator ex : exaremeOperators){
+
+                System.out.println("\t\tContainer: "+ex.getContainerName());
+                outputFile.println("\t\tContainer: "+ex.getContainerName());
+                outputFile.flush();
+                System.out.println("\t\tOperatorName: "+ex.getOperatorName());
+                outputFile.println("\t\tOperatorName: "+ex.getOperatorName());
+                outputFile.flush();
+                System.out.println("\t\tResultName: "+ex.getResultsName());
+                outputFile.println("\t\tResultName: "+ex.getResultsName());
+                outputFile.flush();
+                System.out.println("\t\tQueryString: \n\t\t\t"+ex.getQueryString());
+                outputFile.println("\t\tQueryString: \n\t\t\t"+ex.getQueryString());
+                outputFile.flush();
+                System.out.println("\t\tParameters: ");
+                outputFile.println("\t\tParameters: ");
+                outputFile.flush();
+                for(Parameter p : ex.getParameters()){
+                    if(p instanceof NumParameter){
+                        NumParameter nP = (NumParameter) p;
+                        System.out.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+ nP.getValue());
+                        outputFile.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+ nP.getValue());
+                        outputFile.flush();
+                    }
+                    else{
+                        StringParameter sP = (StringParameter) p;
+                        System.out.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+ sP.getValue());
+                        outputFile.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+ sP.getValue());
+                        outputFile.flush();
+                    }
+                }
+            }
+
+            //Build Op_Links
+
+            List<OpLink> opLinksList = new LinkedList<>();
+
+            for(int i=1; i < exaremeOperators.size(); i++){
+                List<Parameter> pList = new LinkedList<>();
+                StringParameter sP = new StringParameter("table", exaremeOperators.get(i-1).getOutputTables().get(0));
+                NumParameter nP = new NumParameter("part", 0);
+                pList.add(sP);
+                pList.add(nP);
+                OpLink opLink = new OpLink("c0", exaremeOperators.get(i-1).getResultsName(), exaremeOperators.get(i).getResultsName(), pList);
+                opLinksList.add(opLink);
+            }
+
+            System.out.println("\n\t------OpLinks------");
+            outputFile.println("\n\t------OpLinks------");
+            outputFile.flush();
+
+            for(OpLink opLink : opLinksList){
+                System.out.println("\t\tContainerName: "+opLink.getContainerName());
+                outputFile.println("\t\tContainerName: "+opLink.getContainerName());
+                outputFile.flush();
+                System.out.println("\t\tFromTable: "+opLink.getFromTable());
+                outputFile.println("\t\tFromTable: "+opLink.getFromTable());
+                outputFile.flush();
+                System.out.println("\t\tToTable: "+opLink.getToTable());
+                outputFile.println("\t\tToTable: "+opLink.getToTable());
+                outputFile.flush();
+                System.out.println("\t\tParameters: ");
+                outputFile.println("\t\tParameters: ");
+                outputFile.flush();
+                for(Parameter p : opLink.getParameters()){
+                    if(p instanceof NumParameter){
+                        NumParameter nP = (NumParameter) p;
+                        System.out.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+nP.getValue());
+                        outputFile.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+nP.getValue());
+                        outputFile.flush();
+                    }
+                    else{
+                        StringParameter sP = (StringParameter) p;
+                        System.out.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+sP.getValue());
+                        outputFile.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+sP.getValue());
+                        outputFile.flush();
+                    }
+                }
+            }
+
+            File f3 = new File(exaremePlanPath);
+            if(f3.exists() && !f3.isDirectory()) {
+                f3.delete();
+            }
+
+            PrintWriter exaremePlanFile;
+            try {
+                exaremePlanFile = new PrintWriter(f3);
+            } catch (FileNotFoundException var8) {
+                throw new RuntimeException("Failed to open FileOutputStream for outputQuery.txt", var8);
+            }
+
+            //Build ExaremePlan
+            ExaremePlan exaremePlan = new ExaremePlan(containers, exaremeOperators, opLinksList);
+            if(exaremePlanFile != null){
+                exaremePlan.printExaremePlan(exaremePlanFile);
+            }
+
+            exaremePlanFile.close();
+
         }
     }
 
@@ -1333,7 +1935,7 @@ public class HiveTestCluster {
         return;
     }
 
-    private List<String> processStatement(String statement, PrintWriter compileLogFile, PrintWriter resultsLogFile, String flag, long i) {
+    private List<String> processStatement(String statement, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, long i) {
         List<String> results = new LinkedList<String>();
         String[] tokens = statement.trim().split("\\s+");
         CommandProcessor proc = null;
@@ -1547,7 +2149,7 @@ public class HiveTestCluster {
 
                                 System.out.println("\nTotal number of items: "+trueStagesList.size());
 
-                                createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList);
+                                createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList, exaremePlanPath);
 
                             }
                             else if(queryPlan.getFetchTask() != null) {
@@ -1555,7 +2157,7 @@ public class HiveTestCluster {
                                 FetchTask fetchTask = queryPlan.getFetchTask();
                                 rootTasks = new LinkedList<>();
                                 trueStagesList = new LinkedList<>();
-                                createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList);
+                                createExaremeOutputFromExec(rootTasks, compileLogFile, queryPlan, trueStagesList, exaremePlanPath);
                             }
 
                             System.out.println("\n\n\n");

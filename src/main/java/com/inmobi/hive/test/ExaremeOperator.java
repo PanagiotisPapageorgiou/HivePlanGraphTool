@@ -2,6 +2,14 @@ package com.inmobi.hive.test;
 
 import java.util.List;
 
+import madgik.exareme.common.app.engine.AdpDBOperatorType;
+import madgik.exareme.common.app.engine.AdpDBSelectOperator;
+import madgik.exareme.common.schema.Select;
+import madgik.exareme.common.schema.Table;
+import madgik.exareme.common.schema.TableView;
+import madgik.exareme.common.schema.expression.SQLSelect;
+import madgik.exareme.utils.encoding.Base64Util;
+
 /**
  * Created by panos on 1/7/2016.
  */
@@ -9,41 +17,62 @@ public class ExaremeOperator {
     String containerName;
     String operatorName;
     String resultsName;
-    List<String> inputTableNames;
-    List<String> outputTableNames;
     String queryString;
     List<Parameter> parameters;
+    List<String> inputTables;
+    List<String> outputTables;
+    AdpDBSelectOperator trueExaremeOperator;
 
     public ExaremeOperator(){
         containerName = null;
         operatorName = null;
         resultsName = null;
-        inputTableNames = null;
-        outputTableNames = null;
         queryString = null;
         parameters = null;
+        trueExaremeOperator = null;
     }
 
-    public ExaremeOperator(String containerName, String opName, String rName, List<String> input, List<String> output, String queryString, List<Parameter> pList){
+    public ExaremeOperator(String containerName, String opName, String rName, String queryString, List<Parameter> pList, List<String> in, List<String> out, int serialNumber){
         this.containerName = containerName;
         this.operatorName = opName;
         this.resultsName = rName;
-        this.inputTableNames = input;
-        this.outputTableNames = output;
         this.queryString = queryString;
         this.parameters = pList;
+        inputTables = in;
+        outputTables = out;
+
+        System.out.println("PREPAREING FOR EXAREME...");
+
+        //Prepare for Exareme
+        Table outTable = new Table(outputTables.get(0));
+        TableView tableView = new TableView(outTable);
+        SQLSelect sqlSelect = new SQLSelect();
+        sqlSelect.setSql(queryString);
+        Select selectQuery = new Select(serialNumber, sqlSelect, tableView);
+        trueExaremeOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, serialNumber);
+
+        for(String i : inputTables){
+            trueExaremeOperator.addInput(i, 0);
+        }
+
+        trueExaremeOperator.addOutput(outputTables.get(0), 0);
+
+        try {
+            queryString = Base64Util.encodeBase64(trueExaremeOperator);
+        }
+        catch(java.io.IOException ex){
+           System.out.println("Failed to convert to true Exareme Operator!");
+            System.exit(0);
+        }
+
     }
+
+    public List<String> getOutputTables() { return outputTables; }
+
+    public List<String> getInputTables() { return inputTables; }
 
     public List<Parameter> getParameters() {
         return parameters;
-    }
-
-    public List<String> getInputTableNames() {
-        return inputTableNames;
-    }
-
-    public List<String> getOutputTableNames() {
-        return outputTableNames;
     }
 
     public String getContainerName() {
@@ -66,16 +95,8 @@ public class ExaremeOperator {
         return resultsName;
     }
 
-    public void setInputTableNames(List<String> inputTableNames) {
-        this.inputTableNames = inputTableNames;
-    }
-
     public void setOperatorName(String operatorName) {
         this.operatorName = operatorName;
-    }
-
-    public void setOutputTableNames(List<String> outputTableNames) {
-        this.outputTableNames = outputTableNames;
     }
 
     public void setResultsName(String resultsName) {

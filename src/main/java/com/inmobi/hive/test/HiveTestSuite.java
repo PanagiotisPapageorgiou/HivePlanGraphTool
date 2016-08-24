@@ -63,14 +63,14 @@ public class HiveTestSuite {
     }
     
     public List<String> executeScript(String scriptFile) {
-        return executeScript(scriptFile, null, null, null, null, null);
+        return executeScript(scriptFile, null, null, null, null, null, null);
     }
     
     public List<String> executeScript(String scriptFile, Map<String, String> params) {
-        return executeScript(scriptFile, params, null, null, null, null);
+        return executeScript(scriptFile, params, null, null, null, null, null);
     }
     
-    public List<String> executeScript(String scriptFile, Map<String, String> params, List<String> excludes, PrintWriter compileLogFile, PrintWriter resultsLogFile, String flag) {
+    public List<String> executeScript(String scriptFile, Map<String, String> params, List<String> excludes, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag) {
         HiveScript hiveScript = new HiveScript(scriptFile, params, excludes);
         if (cluster == null) {
             throw new IllegalStateException("No active cluster to run script with");
@@ -81,7 +81,7 @@ public class HiveTestSuite {
         //}
         List<String> results = null;
         try {
-            results = cluster.executeStatements(hiveScript.getStatements(), compileLogFile, resultsLogFile, flag);
+            results = cluster.executeStatements(hiveScript.getStatements(), compileLogFile, resultsLogFile, exaremePlanPath, flag);
         } catch (HiveSQLException e) {
             throw new RuntimeException("Unable to execute script", e);
         }
