@@ -22,6 +22,7 @@ public class MyTable {
     List<FieldSchema> partitionKeys;
     List<MyPartition> allPartitions;
     LinkedHashMap<List<FieldSchema>, LinkedHashMap<List<String> , MyPartition>> mapOfKeyValuePartitions;
+    String exaremeDefinition;
 
     public MyTable(){
         belongingDatabase = null;

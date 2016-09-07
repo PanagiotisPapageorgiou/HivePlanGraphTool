@@ -32,33 +32,14 @@ public class ExaremeOperator {
         trueExaremeOperator = null;
     }
 
-    public ExaremeOperator(String containerName, String opName, String rName, String queryString, List<Parameter> pList, List<String> in, List<String> out, int serialNumber){
+    public ExaremeOperator(String containerName, String opName, String rName, AdpDBSelectOperator exaSelectOp, List<Parameter> pList, int serialNumber){
         this.containerName = containerName;
         this.operatorName = opName;
         this.resultsName = rName;
-        this.queryString = queryString;
         this.parameters = pList;
-        inputTables = in;
-        outputTables = out;
-
-        System.out.println("PREPAREING FOR EXAREME...");
-
-        //Prepare for Exareme
-        Table outTable = new Table(outputTables.get(0));
-        TableView tableView = new TableView(outTable);
-        SQLSelect sqlSelect = new SQLSelect();
-        sqlSelect.setSql(queryString);
-        Select selectQuery = new Select(serialNumber, sqlSelect, tableView);
-        trueExaremeOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, serialNumber);
-
-        for(String i : inputTables){
-            trueExaremeOperator.addInput(i, 0);
-        }
-
-        trueExaremeOperator.addOutput(outputTables.get(0), 0);
 
         try {
-            queryString = Base64Util.encodeBase64(trueExaremeOperator);
+            queryString = "{"+Base64Util.encodeBase64(exaSelectOp)+"};";
         }
         catch(java.io.IOException ex){
            System.out.println("Failed to convert to true Exareme Operator!");

@@ -12,21 +12,20 @@ public class OpGraphProducerMain {
         String queryScript = "src/main/resources/scripts/tpcds18Case1.sql";
         String exaremeOpGraphFile = "src/main/resources/files/exaremeGraphsLog.txt";
         String executionResultsFile = "src/main/resources/files/resultsLog.txt";
-        String exaremePlanFile = "src/main/resources/files/exaremePlan.txt";
+        String exaremePlanFile = "src/main/resources/files/exaremePlan.json";
 
-        int numberOfDatanodes = 1;
-        int numberOfTaskTrackers = 1;
-        int maxDynamicPartitions = 1000;
-        int maxDynamicPartitionsPerNode = 100;
-        boolean dynamicPartitionsEnabled = true;
+        int numberOfNodes = 1; //Number of Nodes in Cluster (numberOfDataNodes==NumberOfNodeManagers)
+        int maxDynamicPartitions = 1000; //Total NumberOfPartitions in Cluster
+        int maxDynamicPartitionsPerNode = 100; //Total NumberOfPartitions in Node
+        boolean dynamicPartitionsEnabled = true; //Toggle dynamic partitioning
 
         testCaseTool testTool = new testCaseTool(setupScript, tearDownScript, queryScript, "EXAREME");
 
         try{
-            System.out.println("Setup Cluster with DataNodes: "+numberOfDatanodes+" and TaskTrackers: "+numberOfTaskTrackers+" and load tables...");
+            System.out.println("Setup Cluster with DataNodes: "+numberOfNodes+" and NodeManagers: "+numberOfNodes+" and load tables...");
             if(dynamicPartitionsEnabled == true)
                 System.out.println("MaxDynamicPartitions: "+maxDynamicPartitions + " and MaxDynamicPartitionsPerNode: " +maxDynamicPartitionsPerNode);
-            testTool.setUp(numberOfDatanodes, numberOfTaskTrackers, dynamicPartitionsEnabled, maxDynamicPartitions, maxDynamicPartitionsPerNode);
+            testTool.setUp(numberOfNodes, numberOfNodes, dynamicPartitionsEnabled, maxDynamicPartitions, maxDynamicPartitionsPerNode);
         }
         catch(Exception ex){
             System.out.println("Setup Failed!");

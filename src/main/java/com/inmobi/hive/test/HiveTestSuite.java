@@ -31,11 +31,11 @@ public class HiveTestSuite {
     
     private HiveTestCluster cluster;
     int numberOfDataNodes;
-    int numberOfTaskTrackers;
+    int numberOfNodeManagers;
 
-    public HiveTestSuite(int numData, int numTasks){
+    public HiveTestSuite(int numData, int numManagers){
         numberOfDataNodes = numData;
-        numberOfTaskTrackers = numTasks;
+        numberOfNodeManagers = numManagers;
     }
 
     public void createTestCluster() {
@@ -43,7 +43,7 @@ public class HiveTestSuite {
     }
 
     public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode) {
-        cluster = new HiveTestCluster(numberOfDataNodes, numberOfTaskTrackers);
+        cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers);
         try {
             cluster.start(allowDynamicPartitioning, maxParts, maxPartsPerNode);
         } catch (Exception e) {

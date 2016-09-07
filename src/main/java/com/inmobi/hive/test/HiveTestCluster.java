@@ -9,6 +9,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import madgik.exareme.common.app.engine.AdpDBOperatorType;
+import madgik.exareme.common.app.engine.AdpDBSelectOperator;
+import madgik.exareme.common.schema.Select;
+import madgik.exareme.common.schema.TableView;
+import madgik.exareme.common.schema.expression.Comments;
+import madgik.exareme.common.schema.expression.DataPattern;
+import madgik.exareme.common.schema.expression.SQLSelect;
+import madgik.exareme.utils.encoding.Base64Util;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
@@ -61,10 +69,24 @@ public class HiveTestCluster {
     private HiveConf hiveConf;
     private int numberOfTaskTrackers;
     private int numberOfDataNodes;
+    PrintWriter clusterInfo = null;
+    String currentDatabasePath;
 
     public HiveTestCluster(int numData, int numTasks){
+        currentDatabasePath = "";
         numberOfTaskTrackers = numTasks;
         numberOfDataNodes = numData;
+        File f = new File("src/main/resources/files/clusterInfo.txt");
+        if(f.exists() && !f.isDirectory()) {
+            f.delete();
+        }
+
+        try {
+            clusterInfo = new PrintWriter(f);
+        } catch (FileNotFoundException var9) {
+            throw new RuntimeException("Failed to open FileOutputStream for clusterInfo.txt", var9);
+        }
+
     }
 
     public void start() throws Exception {
@@ -80,20 +102,33 @@ public class HiveTestCluster {
         confOverlay.put(ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
         if(dynamicPartitioning == true) {
             confOverlay.put(ConfVars.DYNAMICPARTITIONING.varname, "true");
+            clusterInfo.println("dynamicPartitioning=true");
+            clusterInfo.flush();
+            clusterInfo.println("maxPartitions(total)="+maxParts);
+            clusterInfo.flush();
+            clusterInfo.println("maxPartitions(perNode)="+maxPartPerNode);
+            clusterInfo.flush();
             confOverlay.put(ConfVars.DYNAMICPARTITIONINGMODE.varname, "nonstrict");
             String maxPartitions = Integer.toString(maxParts);
             String maxPartitionsNode = Integer.toString(maxPartPerNode);
             confOverlay.put(ConfVars.DYNAMICPARTITIONMAXPARTS.varname, maxPartitions);
             confOverlay.put(ConfVars.DYNAMICPARTITIONMAXPARTSPERNODE.varname, maxPartitionsNode);
         }
+        else{
+            clusterInfo.println("dynamicPartitioning=false");
+            clusterInfo.flush();
+        }
         confOverlay.put(MRConfig.FRAMEWORK_NAME, MRConfig.LOCAL_FRAMEWORK_NAME);
+
         miniHS2.start(confOverlay);
         fs = miniHS2.getDfs().getFileSystem();
         SessionState ss = new SessionState(hiveConf);
 
-        //printConfiguration();
-
         SessionState.start(ss);
+
+        clusterInfo.println("NameNode Port: "+fs.getUri().getPort());
+        clusterInfo.flush();
+
     }
     
     public FileSystem getFS() {
@@ -119,15 +154,11 @@ public class HiveTestCluster {
             Path clusterRoot = new Path(file.getAbsolutePath());
             localFileSystem.delete(clusterRoot, true);
         }
-    }
 
-    /*public void printConfiguration(){
-
-        System.out.println("Now printing current Configuration for Testing purposes...");
-        if(hiveConf != null){
-            hiveConf.
+        if(clusterInfo != null) {
+            clusterInfo.close();
         }
-    }*/
+    }
 
     public List<String> executeStatements(List<String> statements, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag) throws HiveSQLException {
         List<String> results = new LinkedList<String>();
@@ -963,6 +994,247 @@ public class HiveTestCluster {
 
     }
 
+    public List<AdpDBSelectOperator> createDummyExaremeOperatorsOneNodeNoPartitions(List<OperatorQuery> opQueriesList){
+
+        List<AdpDBSelectOperator> selectOperatorList = new LinkedList<>();
+
+        System.out.println("Creating Dummy Exareme Operators for One Node No Partitions...");
+
+        int i = 0;
+        for(OperatorQuery opQuery : opQueriesList){ //All RunQueries
+
+            /*---Create SQLSelect---*/
+            SQLSelect sqlSelect = new SQLSelect();
+            if(i == 0) {
+                System.out.println("Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                System.out.println("Setting OutputDataPattern=SAME for SQLSelect...");
+                sqlSelect.setOutputDataPattern(DataPattern.same);
+                System.out.println("Setting NumberOfOutputParts=-1 for SQLSelect...");
+                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
+                System.out.println("Setting ResultTableName for SQLSelect...");
+                //sqlSelect.setResultTable(opQuery.getOutputTableNames().get(0), true, false);
+                System.out.println("Setting PartsDefn=null for SQLSelect...");
+                sqlSelect.setPartsDefn(null);
+                System.out.println("Setting sqlQuery for SQLSelect...");
+                sqlSelect.setSql(opQuery.getExaremeQueryString());
+                Comments someComments = new Comments();
+                someComments.addLine("test_comment");
+                System.out.println("Setting sqlQuery for COmments...");
+                sqlSelect.setComments(someComments);
+
+            }
+            else if(i == 1){
+                System.out.println("Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                System.out.println("Setting OutputDataPattern=SAME for SQLSelect...");
+                sqlSelect.setOutputDataPattern(DataPattern.same);
+                System.out.println("Setting NumberOfOutputParts=-1 for SQLSelect...");
+                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
+                System.out.println("Setting ResultTableName for SQLSelect...");
+                //sqlSelect.setResultTable(opQuery.getOutputTableNames().get(0), false, false);
+                System.out.println("Setting PartsDefn=null for SQLSelect...");
+                sqlSelect.setPartsDefn(null);
+                System.out.println("Setting sqlQuery for SQLSelect...");
+                sqlSelect.setSql(opQuery.getExaremeQueryString());
+                Comments someComments = new Comments();
+                someComments.addLine("test_comment");
+                System.out.println("Setting sqlQuery for COmments...");
+                sqlSelect.setComments(someComments);
+            }
+            System.out.println("Testing created SQLSelect...\nSQLSelect:\n\t"+sqlSelect.toString());
+
+            /*---Create Select---*/
+            List<TableView> inputTableViews = new LinkedList<>();
+
+            //madgik.exareme.common.schema.Table inputTable = new madgik.exareme.common.schema.Table(opQuery.getInputTableNames().get(0));
+
+            /*if(i == 0) {
+                System.out.println("Setting inputTable SqlDefinition... - i="+i);
+                inputTable.setSqlDefinition("CREATE TABLE customer_demographics(\n" +
+                        "  cd_demo_sk INT,\n" +
+                        "  cd_gender TEXT,\n" +
+                        "  cd_marital_status TEXT,\n" +
+                        "  cd_education_status TEXT,\n" +
+                        "  cd_purchase_estimate INT,\n" +
+                        "  cd_credit_rating TEXT,\n" +
+                        "  cd_dep_count INT,\n" +
+                        "  cd_dep_employed_count INT,\n" +
+                        "  cd_dep_college_count INT\n" +
+                        ")");
+                System.out.println("Setting inputTable setTemp... - i="+i);
+                inputTable.setTemp(false);
+                System.out.println("Setting inputTable setLevel=-1 - i="+i);
+                inputTable.setLevel(-1);
+
+                System.out.println("Setting Initialising InputTableView - i="+i);
+                TableView inputTableView = new TableView(inputTable);
+                System.out.println("Setting inputTableView DataPattern=CARTESIAN_PRODUCT - i="+i);
+                inputTableView.setPattern(DataPattern.cartesian_product);
+                System.out.println("Setting inputTableView setNumOfPartitions=-1 - i="+i);
+                inputTableView.setNumOfPartitions(-1);
+                System.out.println("Setting inputTableView addUsedColumn=cd_demo_sk - i="+i);
+                inputTableView.addUsedColumn("cd_demo_sk");
+                System.out.println("Setting inputTableView addUsedColumn=cd_education_status - i="+i);
+                inputTableView.addUsedColumn("cd_education_status");
+
+                inputTableViews.add(inputTableView);
+
+            }
+            else if(i == 1){
+                System.out.println("Setting inputTable SqlDefinition... - i="+i);
+                inputTable.setSqlDefinition("CREATE TABLE RS_15(\n" +
+                        "  cd_demo_sk INT\n" +
+                        ")");
+                System.out.println("Setting inputTable setTemp... - i="+i);
+                inputTable.setTemp(true);
+                System.out.println("Setting inputTable setLevel=1 - i="+i);
+                inputTable.setLevel(1);
+
+                System.out.println("Setting Initialising InputTableView - i="+i);
+                TableView inputTableView = new TableView(inputTable);
+                System.out.println("Setting inputTableView DataPattern=CARTESIAN_PRODUCT - i="+i);
+                inputTableView.setPattern(DataPattern.cartesian_product);
+                System.out.println("Setting inputTableView setNumOfPartitions=-1 - i="+i);
+                inputTableView.setNumOfPartitions(-1);
+                System.out.println("Setting inputTableView addUsedColumn=cd_demo_sk - i="+i);
+                inputTableView.addUsedColumn("cd_demo_sk");
+
+                inputTableViews.add(inputTableView);
+            }*/
+
+            /*madgik.exareme.common.schema.Table outputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTableNames().get(0));
+            TableView outputTableView;
+
+            if(i == 0){
+                System.out.println("Setting outputTable SqlDefinition... - i="+i);
+                outputTable.setSqlDefinition("CREATE TABLE RS_15(\n" +
+                        "  cd_demo_sk INT\n" +
+                        ")");
+                System.out.println("Setting outputTable setTemp... - i="+i);
+                outputTable.setTemp(true);
+                System.out.println("Setting outputTable setLevel=1 - i="+i);
+                outputTable.setLevel(1);
+
+                System.out.println("Setting Initialising OutputTableView - i="+i);
+                outputTableView = new TableView(outputTable);
+                System.out.println("Setting outputTableView DataPattern=SAME - i="+i);
+                outputTableView.setPattern(DataPattern.same);
+                System.out.println("Setting outputTableView setNumOfPartitions=-1 - i="+i);
+                outputTableView.setNumOfPartitions(-1);
+
+                System.out.println("Setting initialising SelectQuery - i="+i);
+                Select selectQuery = new Select(i, sqlSelect, outputTableView);
+                System.out.println("Adding InputTableViews to Select...");
+                for(TableView inputV : inputTableViews){
+                    selectQuery.addInput(inputV);
+                }
+                System.out.println("Adding QueryStatement to Select...");
+                selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
+                System.out.println("Setting Query of Select...");
+                selectQuery.setQuery(opQuery.getExaremeQueryString());
+                System.out.println("Setting Mappings of Select...");
+                selectQuery.setMappings(null);
+                System.out.println("Setting DatabaseDir of Select...");
+                selectQuery.setDatabaseDir("/base/warehouse/tpcds.db");
+
+                System.out.println("Printing created SELECT for Debugging...\n\t"+selectQuery.toString());
+
+                System.out.println("Setting initialising AdpDBSelectOperator - i="+i);
+                AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, i);
+
+                //exaremeSelectOperator.addInput(opQuery.getInputTableNames().get(0), 0);
+                //exaremeSelectOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
+
+                selectOperatorList.add(exaremeSelectOperator);
+
+                System.out.println("Testing exaremeSelectOperator...\n\t"+exaremeSelectOperator.toString());
+
+            }
+            else if(i == 1){
+                System.out.println("Setting outputTable SqlDefinition... - i="+i);
+                outputTable.setSqlDefinition("CREATE TABLE OP_21(\n" +
+                        "  cd_demo_sk INT\n" +
+                        ")");
+                System.out.println("Setting outputTable setTemp... - i="+i);
+                outputTable.setTemp(false);
+                System.out.println("Setting outputTable setLevel=2 - i="+i);
+                outputTable.setLevel(2);
+
+                System.out.println("Setting Initialising OutputTableView - i="+i);
+                outputTableView = new TableView(outputTable);
+                System.out.println("Setting outputTableView DataPattern=SAME - i="+i);
+                outputTableView.setPattern(DataPattern.same);
+                System.out.println("Setting outputTableView setNumOfPartitions=-1 - i="+i);
+                outputTableView.setNumOfPartitions(1);
+
+                System.out.println("Setting initialising SelectQuery - i="+i);
+                Select selectQuery = new Select(i, sqlSelect, outputTableView);
+
+                System.out.println("Adding InputTableViews to Select...");
+                for(TableView inputV : inputTableViews){
+                    selectQuery.addInput(inputV);
+                }
+                System.out.println("Adding QueryStatement to Select...");
+                selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
+                System.out.println("Setting Query of Select...");
+                selectQuery.setQuery(opQuery.getExaremeQueryString());
+                System.out.println("Setting Mappings of Select...");
+                selectQuery.setMappings(null);
+                System.out.println("Setting DatabaseDir of Select...");
+                selectQuery.setDatabaseDir("/base/warehouse/tpcds.db");
+
+                System.out.println("Printing created SELECT for Debugging...\n\t"+selectQuery.toString());
+
+                System.out.println("Setting initialising AdpDBSelectOperator - i="+i);
+                AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, i);
+
+                //exaremeSelectOperator.addInput(opQuery.getInputTableNames().get(0), 0);
+                //exaremeSelectOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
+
+                selectOperatorList.add(exaremeSelectOperator);
+
+                System.out.println("Testing exaremeSelectOperator...\n\t"+exaremeSelectOperator.toString());
+
+                //Create tableUnion
+                System.out.println("Setting initialising TableUnion SelectQuery - i="+i);
+                Select unionSelect = new Select(i+1, sqlSelect, outputTableView);
+
+                System.out.println("Adding InputTableViews to Select...");
+                for(TableView inputV : inputTableViews){
+                    unionSelect.addInput(inputV);
+                }
+                System.out.println("Adding QueryStatement to Select...");
+                unionSelect.addQueryStatement(opQuery.getExaremeQueryString());
+                System.out.println("Setting Query of Select...");
+                unionSelect.setQuery("select * from op_21");
+                System.out.println("Setting Mappings of Select...");
+                unionSelect.setMappings(null);
+                System.out.println("Setting DatabaseDir of Select...");
+                unionSelect.setDatabaseDir("/base/warehouse/tpcds.db");
+
+                System.out.println("Printing created SELECT for Debugging...\n\t"+unionSelect.toString());
+
+
+                System.out.println("Setting initialising AdpDBSelectOperator(TableUnion) - i="+i+1);
+                AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, i+1);
+
+                //exaremeUnionOperator.addInput(opQuery.getInputTableNames().get(0), 0);
+                //exaremeUnionOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
+
+                selectOperatorList.add(exaremeUnionOperator);
+
+                System.out.println("Testing exaremeUnionOperator...\n\t"+exaremeUnionOperator.toString());
+            }*/
+
+            i++;
+
+        }
+
+        return selectOperatorList;
+
+    }
+
     public void createExaremeOutputFromExec(List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> roots, PrintWriter outputFile, QueryPlan queryPlan, List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> stagesList, String exaremePlanPath){
 
         ExaremeGraph exaremeGraphSimpler = new ExaremeGraph("Hive Native(Simplified)");
@@ -1053,6 +1325,16 @@ public class HiveTestCluster {
                             inputTable.setTableName(getTableNameOfEntity(readEntity.toString()));
                             System.out.println("Detected new InputTable! - DB: " + inputTable.getBelongingDataBaseName() + " Table: " + inputTable.getTableName());
                         }
+                    }
+                }
+                else{
+                    try{
+                        currentDatabasePath = readEntity.getLocation().getPath();
+                        System.out.println("CurrentDataBasePath="+currentDatabasePath);
+                    }
+                    catch(java.lang.Exception ex){
+                        System.out.println("Exception while extracting database path...");
+                        System.exit(0);
                     }
                 }
 
@@ -1560,53 +1842,6 @@ public class HiveTestCluster {
 
             discoverStages(newRoots, newStagesList);
 
-            /*if(queryPlan.getFetchTask() != null){
-                System.out.println("Accessing FetchTask for QueryPlan...");
-                FetchTask fetchTask = queryPlan.getFetchTask();
-                if(fetchTask != null){
-                    outputFile.println("FetchStageID: "+fetchTask.getId());
-                    StageType stageType = fetchTask.getType();
-                    if(stageType != null){
-                        outputFile.println("StageType: "+stageType.toString());
-                    }
-                    outputFile.println("MaxTableRows: "+fetchTask.getMaxRows());
-                    outputFile.println("TotalTableRows: "+fetchTask.getTotalRows());
-                    TableDesc tableDesc = fetchTask.getTblDesc();
-                    if(tableDesc != null){
-                        outputFile.println("TableDesc: "+tableDesc.toString());
-                    }
-                    if(fetchTask.getChildTasks() != null){
-                        outputFile.println("Children: "+fetchTask.getChildTasks().toString());
-                    }
-                    if(fetchTask.getParentTasks() != null){
-                        outputFile.println("Parents: "+fetchTask.getParentTasks().toString());
-                    }
-                    if(fetchTask.getTopOperators() != null){
-                        outputFile.println("Top Operators: "+fetchTask.getTopOperators().toString());
-                    }
-                    if(fetchTask.getFetchOperator() != null){
-                        FetchOperator fetch = fetchTask.getFetchOperator();
-                        Operator<? extends Serializable> insideOp = fetch.getInsideOperator();
-                        if(insideOp != null){
-                            outputFile.println("FetchOperatorID: "+insideOp.getOperatorId());
-                            OperatorNode opNode = new OperatorNode(insideOp, fetchTask);
-                            exaremeGraphSimpler.addNode(opNode);
-                        }
-                        if(fetch.getOutputObjectInspector() != null){
-                            ObjectInspector outputInspector = fetch.getOutputObjectInspector();
-                            if(outputInspector != null){
-                                outputFile.println("OutputInspector: "+outputInspector.toString());
-                            }
-                        }
-                    }
-                    FetchWork fetchWork = fetchTask.getWork();
-                    if(fetchWork != null){
-                        outputFile.println("FetchWork: "+fetchWork.toString());
-                    }
-                }
-                exaremeGraphSimpler.setFetchTask(fetchTask);
-            }*/
-
             exaremeGraphSimpler.setPlanStages(newStagesList);
 
             System.out.println("\nGathering all Operators and given connections...\n");
@@ -1615,9 +1850,6 @@ public class HiveTestCluster {
                 System.out.println("createExaremeOutputFromExec: Diving from Root Stage: " + root.getId());
                 diveInStageFromRootExec(root, null, exaremeGraphSimpler, visitedStagesSimpler);
             }
-            /*if(queryPlan.getFetchTask() != null){
-                diveFromFetchTask(fetchTask, exaremeGraphSimp)
-            }*/
 
             System.out.println("\nLinking MapJoins...\n");
 
@@ -1640,9 +1872,6 @@ public class HiveTestCluster {
             exaremeGraphSimpler.discoverRoots(); //Again
 
             exaremeGraphSimpler.discoverCurrentLeaves();
-            //outputFile.println("============================================ QUERY ===============================================\n");
-            //outputFile.println("\nQuery: ["+queryPlan.getQueryString()+"]\n");
-            //outputFile.flush();
 
             FetchTask fetchTask = queryPlan.getFetchTask();
             if(fetchTask != null){
@@ -1736,51 +1965,45 @@ public class HiveTestCluster {
         else{
 
             //Build Queries for Exareme Operators
-            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions);
-            queryBuilder.createExaremeOperators(outputFile);
+            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions, currentDatabasePath);
+            queryBuilder.createExaOperators(outputFile);
+            List<AdpDBSelectOperator> exaremeOperators = queryBuilder.translateToExaremeOps();
+            List<OpLink> opLinks = queryBuilder.getOpLinksList();
 
-
-            List<ExaremeOperator> exaremeOperators = new LinkedList<>();
-            List<OperatorQuery> allOperatorQueries = queryBuilder.getQueryList();
-
-            int l = 0;
-            for(OperatorQuery opQuery : allOperatorQueries){
-                //String queryString = "{"+opQuery.getOutputTableNames().toString()+"\n"+opQuery.getInputTableNames().toString()+"\n"+opQuery.getDataBasePath()+"\n"+opQuery.getExaremeQueryString()+"};";
+            List<ExaremeOperator> finalExaOps = new LinkedList<>();
+            for(int l = 0; l < exaremeOperators.size(); l++){
+                AdpDBSelectOperator exaOp = exaremeOperators.get(l);
                 List<Parameter> parameterList = new LinkedList<>();
                 StringParameter behaviourP = new StringParameter("behavior", "store_and_forward");
                 parameterList.add(behaviourP);
-                StringParameter categoryP = new StringParameter("category", "exe_"+opQuery.getOutputTableNames().get(0));
-                parameterList.add(categoryP);
+                if(l == exaremeOperators.size() - 1) {
+                    StringParameter categoryP = new StringParameter("category", "tab_"+exaOp.getQuery().getOutputTable().getTable().getName());
+                    parameterList.add(categoryP);
+                }
+                else{
+                    StringParameter categoryP = new StringParameter("category", "exe_"+exaOp.getQuery().getOutputTable().getTable().getName());
+                    parameterList.add(categoryP);
+                }
                 NumParameter memoryP = new NumParameter("memoryPercentage", 1);
                 parameterList.add(memoryP);
 
-                ExaremeOperator exaOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.process.ExecuteSelect", opQuery.getExaremeOutputTableName(), opQuery.getExaremeQueryString(), parameterList, opQuery.getInputTableNames(), opQuery.getOutputTableNames(), l);
-                exaremeOperators.add(exaOp);
-                l++;
+                ExaremeOperator finalOp;
+
+                if(l == exaremeOperators.size() - 1){
+                    finalOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.data.TableUnionReplicator", "TR_"+exaremeOperators.get(l).getQuery().getOutputTable().getTable().getName()+"_P_0", exaOp, parameterList, l);
+                }
+                else {
+                    finalOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.process.ExecuteSelect", queryBuilder.getQueryList().get(l).getExaremeOutputTableName(), exaOp, parameterList, l);
+                }
+                finalExaOps.add(finalOp);
             }
-
-            OperatorQuery finalOpQuery = allOperatorQueries.get(allOperatorQueries.size()-1);
-            //String queryString = "{"+finalOpQuery.getOutputTableNames().toString()+"\n"+finalOpQuery.getOutputTableNames().toString()+"\n"+finalOpQuery.getDataBasePath()+"\n"+"select * from "+finalOpQuery.getOutputTableNames().get(0)+"};";
-            String resultsName = finalOpQuery.getOutputTableNames().get(0);
-            resultsName = "TR_"+resultsName+"_P_0";
-
-            List<Parameter> parameterList = new LinkedList<>();
-            StringParameter behaviourP = new StringParameter("behavior", "store_and_forward");
-            parameterList.add(behaviourP);
-            StringParameter categoryP = new StringParameter("category", "tab_"+finalOpQuery.getOutputTableNames().get(0));
-            parameterList.add(categoryP);
-            NumParameter memoryP = new NumParameter("memoryPercentage", 1);
-            parameterList.add(memoryP);
-
-            ExaremeOperator exaOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.data.TableUnionReplicator", resultsName, finalOpQuery.getExaremeQueryString(), parameterList, finalOpQuery.getInputTableNames(), finalOpQuery.getOutputTableNames(), l);
-            exaremeOperators.add(exaOp);
 
             System.out.println("===============================Constructing Exareme Plan...=====================================");
             outputFile.println("===============================Constructing Exareme Plan...=====================================");
             outputFile.flush();
             //Build Containers for Exareme Plan
             List<Container> containers = new LinkedList<>();
-            Container singleNode = new Container("c0", "127.0.0.1_container_127.0.0.1", 1099, 8088);
+            Container singleNode = new Container("c0", "192.168.1.7_container_192.168.1.7", 1098, 8088);
             containers.add(singleNode);
 
             System.out.println("\n\t------Containers------");
@@ -1796,7 +2019,7 @@ public class HiveTestCluster {
             System.out.println("\n\t------Operators------");
             outputFile.println("\n\t------Operators------");
             outputFile.flush();
-            for(ExaremeOperator ex : exaremeOperators){
+            for(ExaremeOperator ex : finalExaOps){
 
                 System.out.println("\t\tContainer: "+ex.getContainerName());
                 outputFile.println("\t\tContainer: "+ex.getContainerName());
@@ -1829,25 +2052,11 @@ public class HiveTestCluster {
                 }
             }
 
-            //Build Op_Links
-
-            List<OpLink> opLinksList = new LinkedList<>();
-
-            for(int i=1; i < exaremeOperators.size(); i++){
-                List<Parameter> pList = new LinkedList<>();
-                StringParameter sP = new StringParameter("table", exaremeOperators.get(i-1).getOutputTables().get(0));
-                NumParameter nP = new NumParameter("part", 0);
-                pList.add(sP);
-                pList.add(nP);
-                OpLink opLink = new OpLink("c0", exaremeOperators.get(i-1).getResultsName(), exaremeOperators.get(i).getResultsName(), pList);
-                opLinksList.add(opLink);
-            }
-
             System.out.println("\n\t------OpLinks------");
             outputFile.println("\n\t------OpLinks------");
             outputFile.flush();
 
-            for(OpLink opLink : opLinksList){
+            for(OpLink opLink : opLinks){
                 System.out.println("\t\tContainerName: "+opLink.getContainerName());
                 outputFile.println("\t\tContainerName: "+opLink.getContainerName());
                 outputFile.flush();
@@ -1889,7 +2098,7 @@ public class HiveTestCluster {
             }
 
             //Build ExaremePlan
-            ExaremePlan exaremePlan = new ExaremePlan(containers, exaremeOperators, opLinksList);
+            ExaremePlan exaremePlan = new ExaremePlan(containers, finalExaOps, opLinks);
             if(exaremePlanFile != null){
                 exaremePlan.printExaremePlan(exaremePlanFile);
             }

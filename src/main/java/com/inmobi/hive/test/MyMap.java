@@ -44,11 +44,15 @@ public class MyMap {
         System.out.println("\t------------- columnAndTypeMap ---------------");
         int k = 0;
         for(ColumnTypePair c : columnAndTypeList){
-            if(c.hasAlternateAlias() == true) {
-                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAlias: NULL");
+            if(c.hasAlternateAlias() == false) {
+                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAliases: NULL");
             }
             else{
-                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAlias: "+c.getAlternateAlias());
+                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAliases: ");
+                List<StringParameter> altAliases = c.getAltAliasPairs();
+                for(StringParameter sP : altAliases) {
+                    System.out.println("\t\t\tAltAlias - Operator: "+sP.getParemeterType()+" - Column: "+sP.getValue());
+                }
             }
             k++;
         }

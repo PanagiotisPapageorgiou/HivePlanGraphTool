@@ -48,7 +48,7 @@ public class ExaremePlan {
             outputFile.flush();
             outputFile.println("\t\t\t\"name\": " + "\"" + name + "\",\n");
             outputFile.flush();
-            outputFile.println("\t\t\t\"value\": " + "\"" + value + "\",\n");
+            outputFile.println("\t\t\t\"value\": " + "\"" + value + "\"\n");
             outputFile.flush();
             outputFile.println("\t\t}");
             outputFile.flush();
@@ -58,7 +58,7 @@ public class ExaremePlan {
             outputFile.flush();
             outputFile.println("\t\t\t\"name\": " + "\"" + name + "\",\n");
             outputFile.flush();
-            outputFile.println("\t\t\t\"value\": " + "\"" + value + "\",\n");
+            outputFile.println("\t\t\t\"value\": " + "\"" + value + "\"\n");
             outputFile.flush();
             outputFile.println("\t\t},");
             outputFile.flush();

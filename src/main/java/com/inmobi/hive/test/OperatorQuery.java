@@ -1,5 +1,7 @@
 package com.inmobi.hive.test;
 
+import madgik.exareme.common.app.engine.AdpDBSelectOperator;
+
 import java.io.PrintWriter;
 import java.util.LinkedList;
 import java.util.List;
@@ -12,17 +14,41 @@ public class OperatorQuery {
     String localQueryString;
     String exaremeQueryString;
     String exaremeOutputTableName;
-    List<String> outputTableNames;
-    List<String> inputTableNames;
+    String assignedContainer;
+    MyTable outputTable;
+    List<String> usedColumns;
+    List<MyTable> inputTables;
 
     public OperatorQuery() {
-        dataBasePath = "/home/panos/tpcds";
+        assignedContainer = "";
+        dataBasePath = "";
         localQueryString = "";
         exaremeQueryString = "";
         exaremeOutputTableName = "";
-        outputTableNames = new LinkedList<>();
-        inputTableNames = new LinkedList<>();
+        outputTable = new MyTable();
+        inputTables = new LinkedList<>();
+        usedColumns = new LinkedList<>();
     }
+
+    public void addUsedColumn(String c){
+
+        if(usedColumns.size() > 0){
+            for(String s : usedColumns){
+                if(s.equals(c)){
+                    return;
+                }
+            }
+        }
+
+        usedColumns.add(c);
+
+    }
+
+    public List<String> getUsedColumns() { return usedColumns; }
+
+    public String getAssignedContainer() { return assignedContainer; }
+
+    public void setAssignedContainer(String c) { assignedContainer = c; }
 
     public String getDataBasePath() { return dataBasePath; }
 
@@ -32,9 +58,11 @@ public class OperatorQuery {
 
     public String getExaremeQueryString() { return exaremeQueryString; }
 
-    public List<String> getOutputTableNames() { return outputTableNames; }
+    public MyTable getOutputTable() { return outputTable; }
 
-    public List<String> getInputTableNames() { return inputTableNames; }
+    public void setOutputTable(MyTable out) { outputTable = out; }
+
+    public List<MyTable> getInputTables() { return inputTables; }
 
     public void setDataBasePath(String p) { dataBasePath = p; }
 
@@ -44,31 +72,18 @@ public class OperatorQuery {
 
     public void setExaremeQueryString(String e) { exaremeQueryString = e; }
 
-    public void setOutputTableNames(List<String> l) { outputTableNames = l; }
+    public void addInputTable(MyTable n){
 
-    public void setInputTableNames(List<String> l) { inputTableNames = l; }
-
-    public void addOutputTable(String o){
-
-        if(outputTableNames.size() > 0){
-            for(String s : outputTableNames){
-                if(s.equals(o)) return;
+        if(inputTables.size() > 0){
+            for(MyTable m : inputTables){
+                if(m.getTableName().equals(n.getTableName())) {
+                    if(m.getBelongingDataBaseName().equals(n.getBelongingDataBaseName()))
+                    return;
+                }
             }
         }
 
-        outputTableNames.add(o);
-
-    }
-
-    public void addInputTable(String o){
-
-        if(inputTableNames.size() > 0){
-            for(String s : inputTableNames){
-                if(s.equals(o)) return;
-            }
-        }
-
-        inputTableNames.add(o);
+        inputTables.add(n);
 
     }
 
@@ -85,11 +100,15 @@ public class OperatorQuery {
         System.out.println("\t\t\texaremeQueryString: ["+exaremeQueryString+"]");
         outputFile.println("\t\t\texaremeQueryString: ["+exaremeQueryString+"]");
         outputFile.flush();
-        System.out.println("\t\t\tOutputTableNames: "+outputTableNames.toString());
-        outputFile.println("\t\t\tOutputTableNames: "+outputTableNames.toString());
+        System.out.println("\t\t\tOutputTable(Name): "+outputTable.getTableName());
+        outputFile.println("			OutputTable(Name): "+outputTable.getTableName());
         outputFile.flush();
-        System.out.println("\t\t\tInputTableNames: "+inputTableNames.toString());
-        outputFile.println("\t\t\tInputTableNames: "+inputTableNames.toString());
+        List<String> inputNames = new LinkedList<>();
+        for(MyTable i : inputTables){
+            inputNames.add(i.getTableName());
+        }
+        System.out.println("\t\t\tInputTables(Names): "+inputNames.toString());
+        outputFile.println("\t\t\tInputTables(Names): "+inputNames.toString());
         outputFile.flush();
         System.out.println();
         outputFile.println();
