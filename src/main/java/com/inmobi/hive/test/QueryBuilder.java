@@ -2470,8 +2470,8 @@ public class QueryBuilder {
             opQuery.setExaremeQueryString("");
             opQuery.addInputTable(inputTables.get(0));
             opQuery.setAssignedContainer("c0");
-            opQuery.setLocalQueryString("from "+inputTables.get(0).getTableName().toLowerCase());
-            opQuery.setExaremeQueryString("from "+inputTables.get(0).getTableName().toLowerCase());
+            opQuery.setLocalQueryString(" from "+inputTables.get(0).getTableName().toLowerCase());
+            opQuery.setExaremeQueryString(" from "+inputTables.get(0).getTableName().toLowerCase());
 
             OperatorNode rootNode = roots.get(0);
             if(rootNode.getOperator() instanceof TableScanOperator){
@@ -2518,8 +2518,8 @@ public class QueryBuilder {
                                 opQuery.addUsedColumn(n);
                             }
 
-                            opQuery.setLocalQueryString(" select "+ expression + "from "+inputTables.get(0).getTableName().toLowerCase());
-                            opQuery.setExaremeQueryString(" select "+ expression + "from "+inputTables.get(0).getTableName().toLowerCase());
+                            opQuery.setLocalQueryString(" select "+ expression + " from "+inputTables.get(0).getTableName().toLowerCase());
+                            opQuery.setExaremeQueryString(" select "+ expression + " from "+inputTables.get(0).getTableName().toLowerCase());
 
                             MyTable outputTable = new MyTable();
                             outputTable.setIsAFile(false);
@@ -2680,8 +2680,8 @@ public class QueryBuilder {
                             opQuery.setExaremeQueryString("");
                             opQuery.addInputTable(currentOpQuery.getOutputTable());
                             opQuery.setAssignedContainer("c0");
-                            opQuery.setLocalQueryString("from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                            opQuery.setExaremeQueryString("from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                            opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                            opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
 
                             System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
 
@@ -3191,8 +3191,8 @@ public class QueryBuilder {
                 opQuery.setExaremeQueryString("");
                 opQuery.addInputTable(currentOpQuery.getOutputTable());
                 opQuery.setAssignedContainer("c0");
-                opQuery.setLocalQueryString("from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                opQuery.setExaremeQueryString("from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
 
@@ -3513,9 +3513,16 @@ public class QueryBuilder {
             System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...");
             System.out.flush();
             sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
-            System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...");
-            System.out.flush();
-            sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+            if(i == allQueries.size() - 1) {
+                System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
+                System.out.flush();
+                sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+            }
+            else {
+                System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
+                System.out.flush();
+                sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+            }
             System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
             System.out.flush();
             sqlSelect.setPartsDefn(null);
@@ -3588,10 +3595,11 @@ public class QueryBuilder {
             System.out.flush();
 
             exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
-            if(currentInputLevel == allQueries.size() - 1){
+            if(i == allQueries.size() - 1){
                 System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
                 System.out.flush();
                 exaremeOutputTable.setTemp(false);
+
             }
             else{
                 System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
@@ -3639,6 +3647,7 @@ public class QueryBuilder {
             selectQuery.setMappings(null);
             System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
             System.out.flush();
+            List<Integer> runOnParts = selectQuery.getRunOnParts();
             selectQuery.setDatabaseDir(currentDatabasePath);
             System.out.println("translateToExaremeOps: Testing DataBasePath Given: "+currentDatabasePath+" - Set: "+selectQuery.getDatabaseDir());
             System.out.flush();
@@ -3648,7 +3657,7 @@ public class QueryBuilder {
 
             System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - ");
             System.out.flush();
-            AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, i);
+            AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
 
             System.out.println("translateToExaremeOps: Adding Inputs And Outputs (Partitions) for AdpDBSelectOperator...");
             System.out.flush();
@@ -3670,7 +3679,111 @@ public class QueryBuilder {
                 System.out.println("translateToExaremeOps: Now creating an extra TableUnionReplicator Operator...\n\t");
                 System.out.flush();
 
-                Select unionSelect = new Select(i+1, sqlSelect, outputTableView);
+                /*---Build SQLSelect---*/
+                System.out.println("translateToExaremeOps: \tOperatorQuery: ["+opQuery.getExaremeQueryString()+" ]");
+                System.out.flush();
+                SQLSelect sqlSelect2 = new SQLSelect();
+                System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                System.out.flush();
+                sqlSelect2.setInputDataPattern(DataPattern.cartesian_product);
+                sqlSelect2.setOutputDataPattern(DataPattern.same);
+                System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...");
+                System.out.flush();
+                sqlSelect2.setNumberOfOutputPartitions(-1); //means no partitions
+                System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(NON TEMP TABLE)");
+                System.out.flush();
+                sqlSelect2.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                System.out.flush();
+                sqlSelect2.setPartsDefn(null);
+                System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                System.out.flush();
+                sqlSelect2.setSql(opQuery.getExaremeQueryString());
+                Comments someComments2 = new Comments();
+                someComments2.addLine("test_comment");
+                System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                System.out.flush();
+                sqlSelect2.setComments(someComments2);
+
+                /*--------------Build Select----------------*/
+
+                /*---Build InputTableViews of Select---*/
+                List<TableView> inputTableViews2 = new LinkedList<>();
+                if(opQuery.getInputTables().size() > 1){
+                    System.out.println("translateToExaremeOps: More than 1 Input Table for OpQuery! Not supported yet!");
+                    System.exit(0);
+                }
+                MyTable inputTable2 = opQuery.getInputTables().get(0);
+
+                System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                System.out.flush();
+                madgik.exareme.common.schema.Table exaInputTable2 = new madgik.exareme.common.schema.Table(inputTable.getTableName().toLowerCase());
+                String exaremeInputTdef2 = exaremeTableDefinition(inputTable2);
+                System.out.println("translateToExaremeOps: SQL def: "+exaremeInputTdef2);
+                System.out.flush();
+                exaInputTable2.setSqlDefinition(exaremeInputTdef2);
+
+                System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                exaInputTable2.setTemp(true);
+
+                System.out.println("translateToExaremeOps: Setting Input Table Level= "+currentInputLevel);
+                System.out.flush();
+                exaInputTable2.setLevel(currentInputLevel);
+
+                System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                System.out.flush();
+                TableView inputTableView2 = new TableView(exaInputTable2);
+                System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                System.out.flush();
+                inputTableView2.setPattern(DataPattern.cartesian_product);
+                System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                System.out.flush();
+                inputTableView2.setNumOfPartitions(-1);
+
+                System.out.println("translateToExaremeOps: Adding used Columns...WARNING DOES NOT WORK FOR MORE THAN 1 TABLE!"); //TODO
+                System.out.flush();
+                if(opQuery.getInputTables().size() > 1) System.exit(0);
+
+                for(String u : opQuery.getUsedColumns()){
+                    inputTableView2.addUsedColumn(u);
+                }
+
+                inputTableViews2.add(inputTableView2);
+
+                /*---Build OutputTableView of Select---*/
+                madgik.exareme.common.schema.Table exaremeOutputTable2 = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
+                TableView outputTableView2;
+
+                System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
+                System.out.flush();
+                String exaremeOutputTdef2 = exaremeTableDefinition(opQuery.getOutputTable());
+                System.out.println("translateToExaremeOps: SQL def: "+exaremeOutputTdef2);
+                System.out.flush();
+
+                exaremeOutputTable2.setSqlDefinition(exaremeOutputTdef2);
+                System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
+                System.out.flush();
+                exaremeOutputTable2.setTemp(false);
+
+                System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 2));
+                System.out.flush();
+                exaremeOutputTable2.setLevel(currentInputLevel + 1);
+
+                System.out.println("translateToExaremeOps: Initialising OutputTableView");
+                System.out.flush();
+                outputTableView2 = new TableView(exaremeOutputTable2);
+                System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
+                System.out.flush();
+                outputTableView2.setPattern(DataPattern.same);
+                System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 ");
+                System.out.flush();
+                outputTableView2.setNumOfPartitions(1);
+
+                /*---Finally initialising Select---*/
+                System.out.println("translateToExaremeOps: Initialising SelectQuery");
+                System.out.flush();
+
+                Select unionSelect = new Select(i+1, sqlSelect2, outputTableView2);
 
                 System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
                 System.out.flush();
@@ -3685,6 +3798,7 @@ public class QueryBuilder {
                 unionSelect.setQuery("select * from "+opQuery.getOutputTable().getTableName().toLowerCase());
                 System.out.println("translateToExaremeOps: Setting Mappings of Select...");
                 System.out.flush();
+                List<Integer> runOnParts2 = unionSelect.getRunOnParts();
                 unionSelect.setMappings(null);
                 System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
                 System.out.flush();
@@ -3692,7 +3806,7 @@ public class QueryBuilder {
 
                 System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator(TableUnion)");
                 System.out.flush();
-                AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, i+1);
+                AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
 
                 if(opQuery.getInputTables().size() > 1){
                     System.out.println("translateToExaremeOps: OperatorQuery with more than 1 Input Table! Unsupported!");

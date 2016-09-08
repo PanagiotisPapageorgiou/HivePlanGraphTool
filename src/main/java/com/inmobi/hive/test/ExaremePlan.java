@@ -93,7 +93,7 @@ public class ExaremePlan {
         outputFile.flush();
 
         //Containers
-            outputFile.println("\t\"containers:\": [\n");
+            outputFile.println("\t\"containers\": [\n");
             outputFile.flush();
 
             for(Container c : containers){
@@ -104,9 +104,9 @@ public class ExaremePlan {
                     outputFile.flush();
                     outputFile.println("\t\t\t\"IP\": \""+c.getIP()+"\",\n");
                     outputFile.flush();
-                    outputFile.println("\t\t\t\"port\": \""+c.getPort()+"\",\n");
+                    outputFile.println("\t\t\t\"port\": "+c.getPort()+",\n");
                     outputFile.flush();
-                    outputFile.println("\t\t\t\"data_transfer_port\": \""+c.getData_transfer_port()+"\"\n");
+                    outputFile.println("\t\t\t\"data_transfer_port\": "+c.getData_transfer_port()+"\n");
                     outputFile.flush();
 
                 outputFile.println("\t\t}\n");
@@ -117,7 +117,7 @@ public class ExaremePlan {
             outputFile.flush();
 
         //Operators
-            outputFile.println("\t\"operators:\": [\n");
+            outputFile.println("\t\"operators\": [\n");
             outputFile.flush();
 
             int i = 0;
@@ -147,7 +147,7 @@ public class ExaremePlan {
                             NumParameter nP = (NumParameter) p;
                             outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
                             outputFile.flush();
-                            outputFile.println("\t\t\t\t\t\""+nP.getValue()+"\"\n");
+                            outputFile.println("\t\t\t\t\t"+nP.getValue()+"\n");
                             outputFile.flush();
                         }
                         else{
@@ -181,7 +181,7 @@ public class ExaremePlan {
             outputFile.flush();
 
         //Op_Links
-            outputFile.println("\t\"op_links:\": [\n");
+            outputFile.println("\t\"op_links\": [\n");
             outputFile.flush();
 
             int k = 0;
@@ -209,7 +209,7 @@ public class ExaremePlan {
                             NumParameter nP = (NumParameter) p;
                             outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
                             outputFile.flush();
-                            outputFile.println("\t\t\t\t\t\""+nP.getValue()+"\"\n");
+                            outputFile.println("\t\t\t\t\t"+nP.getValue()+"\n");
                             outputFile.flush();
                         }
                         else{
