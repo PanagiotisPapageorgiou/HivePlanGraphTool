@@ -19,7 +19,24 @@ public class MyMap {
     public void setColumnAndTypeList(List<ColumnTypePair> l) { columnAndTypeList = l; }
 
     public void addPair(ColumnTypePair c){
+
         boolean exists = false;
+
+        if(c.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
+            return;
+        }
+        else if(c.getColumnName().contains("INPUT__FILE__NAME")){
+            return;
+        }
+        else if(c.getColumnName().contains("ROW__ID")){
+            return;
+        }
+        else if(c.getColumnName().contains("rowid")){
+            return;
+        }
+        else if(c.getColumnName().contains("bucketid")){
+            return;
+        }
 
         for(ColumnTypePair pair : columnAndTypeList){
             if(pair.getColumnName().equals(c.getColumnName())){

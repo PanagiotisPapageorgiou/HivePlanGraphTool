@@ -18,6 +18,7 @@ import madgik.exareme.common.schema.expression.DataPattern;
 import madgik.exareme.common.schema.expression.SQLSelect;
 import madgik.exareme.utils.encoding.Base64Util;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
@@ -1457,6 +1458,7 @@ public class HiveTestCluster {
                     inputPartition.setBucketColsList(bucketColsList);
                     inputPartition.setBucketCount(partition.getBucketCount());
                     inputPartition.setAllFields(partition.getCols());
+
                     inputPartition.setPartitionHDFSPath(partitionPath);
 
                     System.out.println("Added extra partition information to InputPartition!");
@@ -1568,8 +1570,13 @@ public class HiveTestCluster {
                     else {
                         if (isPartition(readEntity.toString())) {
                             inputPartitions.add(inputPartition);
-                            System.out.println("Added InputPartiion to List!");
+                            String rootPartitionPath = inputPartition.getBelogingTableName() + inputPartition.getPartitionName().replace("@", "/") + "/" + "000000_0";
+                            System.out.println("Is Root Hive PARTITION Input - Setting Input Partition hivePath: " + rootPartitionPath);
+                            inputPartition.setRootHiveLocationPath(rootPartitionPath);
+                            System.out.println("Added InputPartition to List!");
                         } else {
+                            System.out.println("Is Root Hive Input - Setting Input Table hivePath: " + inputTable.getTableName() + "/" + inputTable.getTableName() + ".dat");
+                            inputTable.setRootHiveLocationPath(inputTable.getTableName() + "/" + inputTable.getTableName() + ".dat");
                             inputTables.add(inputTable);
                             System.out.println("Added InputTable to List!");
                         }
@@ -1596,12 +1603,12 @@ public class HiveTestCluster {
                             outputPartition.setBelongingDatabaseName(getDataBaseOfEntity(writeEntity.toString()));
                             outputPartition.setBelongingTableName(getTableNameOfEntity(writeEntity.toString()));
                             outputPartition.setPartitionName(getPartitionNameOfEntity(writeEntity.toString()));
-                            System.out.println("Detected new InputPartition! - DB: " + outputPartition.getBelongingDataBaseName() + " Table: " + outputPartition.getBelogingTableName() + " - Partition: " + outputPartition.getPartitionName());
+                            System.out.println("Detected new Output! - DB: " + outputPartition.getBelongingDataBaseName() + " Table: " + outputPartition.getBelogingTableName() + " - Partition: " + outputPartition.getPartitionName());
                         } else {
-                            System.out.println("Detected new InputTable!");
+                            System.out.println("Detected new OutputTable!");
                             outputTable.setBelongingDatabaseName(getDataBaseOfEntity(writeEntity.toString()));
                             outputTable.setTableName(getTableNameOfEntity(writeEntity.toString()));
-                            System.out.println("Detected new InputTable! - DB: " + outputTable.getBelongingDataBaseName() + " Table: " + outputTable.getTableName());
+                            System.out.println("Detected new OutputTable! - DB: " + outputTable.getBelongingDataBaseName() + " Table: " + outputTable.getTableName());
                         }
                     }
                     else{
@@ -2003,7 +2010,7 @@ public class HiveTestCluster {
             outputFile.flush();
             //Build Containers for Exareme Plan
             List<Container> containers = new LinkedList<>();
-            Container singleNode = new Container("c0", "192.168.1.7_container_192.168.1.7", 1098, 8088);
+            Container singleNode = new Container("c0", "192.168.1.6_container_192.168.1.6", 1098, 8088);
             containers.add(singleNode);
 
             System.out.println("\n\t------Containers------");
@@ -2194,13 +2201,16 @@ public class HiveTestCluster {
                     System.out.println("\n\nWhat would you like to do for Query:["+statement+"]\n\n");
                     System.out.println("Choices...");
                     Scanner intScanner = new Scanner(System.in);
+                    Scanner stringScanner = new Scanner(System.in);
                     choice = -1;
                     do{
                        System.out.println("1. Compile & Extract OperatorGraph");
                        System.out.println("2. Compile & Run Query");
-                       System.out.println("3. Exit");
+                       System.out.println("3. Skip");
+                       System.out.println("4. ListStatus Metastore Files/Dirs");
+                       System.out.println("5. Exit");
                        choice = intScanner.nextInt();
-                    } while((choice != 1) && (choice != 2) && (choice != 3));
+                    } while((choice != 1) && (choice != 2) && (choice != 3) && (choice != 4) && (choice != 5));
 
                     if(choice == 1){
 
@@ -2418,6 +2428,42 @@ public class HiveTestCluster {
                             resultsLogFile.println("\n\n");
                             resultsLogFile.flush();
                         }
+
+                    }
+                    else if(choice == 3){
+                        System.out.println("\nSkipping Query...");
+                        break;
+                    }
+                    else if(choice == 4){
+                        do {
+                            System.out.print("\nType the Path to use ls on: ");
+                            String lsPath = stringScanner.next();
+                            System.out.println();
+
+                            if (lsPath.contains("\n")) lsPath = lsPath.replace("\n", "");
+
+                            Path thePath = new Path(lsPath);
+
+                            System.out.print("\nPrinting FileStatuses for given path: ");
+                            FileStatus[] fileStatusArray = miniHS2.getDfs().getFileSystem().listStatus(thePath);
+                            if (fileStatusArray != null) {
+                                for (FileStatus fileStatus : fileStatusArray) {
+                                    System.out.println("FileStatus: " + fileStatus.toString());
+                                }
+                            }
+
+                            int choiceLS = -1;
+                            System.out.println("\nRun another LS Command?");
+
+                            do {
+                                System.out.println("1. Yes");
+                                System.out.println("2. No");
+                                choiceLS = intScanner.nextInt();
+                            } while ((choiceLS != 1) && (choiceLS != 2));
+
+                            if (choiceLS == 2) break;
+                        } while(true);
+
 
                     }
                     else{

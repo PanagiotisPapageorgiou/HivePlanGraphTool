@@ -10,19 +10,25 @@ import java.util.*;
 /**
  * Created by panos on 21/8/2016.
  */
-public class MyTable {
-    String belongingDatabase;
+public class MyTable { //Represents a Hive or Exareme Table
+    String belongingDatabase; //Belonging database for example: tpcds_db.db
     String tableName;
     URI location; //Additional (Metastore) Location details
     Path dataLocation; //Full HDFS LocationPath
     List<FieldSchema> allCols;
     ArrayList<StructField> allFields;
     boolean hasPartitions;
-    boolean isAFile; //Input/Output Entity might be file
+    boolean isAFile; //Input/Output Entity might be file in Hive
     List<FieldSchema> partitionKeys;
-    List<MyPartition> allPartitions;
+    List<MyPartition> allPartitions; //List of associated Partitions
     LinkedHashMap<List<FieldSchema>, LinkedHashMap<List<String> , MyPartition>> mapOfKeyValuePartitions;
-    String exaremeDefinition;
+
+    List<MyTable> ancestorTables = new LinkedList<>();
+
+    //Handle Exareme Tables differently from Hive Tables
+    boolean isRootInput = false;
+    String rootHiveTableDefinition = "";
+    String rootHiveLocationPath = "";
 
     public MyTable(){
         belongingDatabase = null;
@@ -36,24 +42,135 @@ public class MyTable {
         mapOfKeyValuePartitions = new LinkedHashMap<>();
         hasPartitions=false;
         isAFile=false;
+        isRootInput = false;
+        rootHiveTableDefinition = "";
+        rootHiveLocationPath = "";
     }
 
     public MyTable(String dbName, String tbName){
         belongingDatabase = dbName;
         tableName = tbName;
         isAFile = false;
+
+        isRootInput = false;
+        rootHiveTableDefinition = "";
+        rootHiveLocationPath = "";
+
+        allCols = new LinkedList<>();
+        allFields = new ArrayList<>();
+        partitionKeys = new LinkedList<>();
+        allPartitions = new LinkedList<>();
+        mapOfKeyValuePartitions = new LinkedHashMap<>();
+        hasPartitions=false;
     }
+
+    public void addAncestorTable(MyTable table){
+
+        if(ancestorTables.size() > 0){
+            for(MyTable m : ancestorTables){
+                if(m.getTableName().equals(table.getTableName())){
+                    if(m.getBelongingDataBaseName().equals(table.getBelongingDataBaseName())){
+                        return;
+                    }
+                }
+            }
+        }
+        else{
+            ancestorTables.add(table);
+        }
+
+    }
+
+    public List<MyTable> getAncestorTables() { return ancestorTables; }
+
+    public void createRootHiveTableDefinition(){
+        String columnsString = "";
+
+        rootHiveTableDefinition = "";
+        rootHiveTableDefinition = "select ";
+        int i = 0;
+
+        for(FieldSchema f : allCols){
+            String colName = f.getName();
+            String colType = f.getType();
+            String exaremeType = "";
+
+            int colNumber = i+1;
+
+            String arithmeticName = "c"+colNumber;
+
+            if(colType.contains("int")){
+                exaremeType = "INT";
+            }
+            else if(colType.contains("string")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("decimal")){
+                exaremeType = "NUM";
+            }
+            else if(colType.contains("char")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("float")){
+                exaremeType = "NUM";
+            }
+            else{
+                System.out.println("createRootHiveTableDefinition: Unknown Hive Type: "+colType);
+                System.exit(0);
+            }
+
+            if(i == allCols.size() - 1){
+                columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+" ");
+            }
+            else{
+                columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+",");
+            }
+
+            System.out.println("createRootHiveTableDefinition: Current columnsString: "+columnsString);
+
+            i++;
+        }
+
+        rootHiveTableDefinition = rootHiveTableDefinition.concat(columnsString);
+
+        System.out.println("RootHiveTableDefinition is: "+ rootHiveTableDefinition);
+    }
+
+    public void setRootHiveLocationPath(String path) {
+        rootHiveLocationPath = path; //Set the location path leading to the associated file in the HDFS
+        isRootInput = true;
+        createRootHiveTableDefinition();
+
+        System.out.println("RootHiveTableLocation is: "+ rootHiveLocationPath);
+    }
+
+    public String getRootHiveLocationPath() { return rootHiveLocationPath; }
+
+    public String getRootHiveTableDefinition() { return rootHiveTableDefinition; }
 
     public MyTable(String fileName, boolean isAFile){
         if(isAFile == true){
             tableName = fileName;
             isAFile = true;
+
+            isRootInput = false;
+            rootHiveTableDefinition = "";
+            rootHiveLocationPath = "";
+
+            allCols = new LinkedList<>();
+            allFields = new ArrayList<>();
+            partitionKeys = new LinkedList<>();
+            allPartitions = new LinkedList<>();
+            mapOfKeyValuePartitions = new LinkedHashMap<>();
+            hasPartitions=false;
         }
         else{
             System.out.println("Constructor for File Entity invoked with false parameter!");
             System.exit(0);
         }
     }
+
+    public boolean getIsRootInput() { return isRootInput; }
 
     public void setIsAFile(boolean f) { isAFile = f; }
 

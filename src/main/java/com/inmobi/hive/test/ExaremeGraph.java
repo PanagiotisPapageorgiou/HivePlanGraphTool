@@ -140,13 +140,26 @@ public class ExaremeGraph {
     }
 
     public OperatorNode getOperatorNodeByName(String name){
+
+        boolean found = false;
+
+        System.out.println("getOperatorNodeByName: Searching for..."+name+" in Graph!");
+
         if(nodesList.size() > 0){
             for(OperatorNode la : nodesList){
                 if(la.getOperatorName().equals(name)){
+                    System.out.println("getOperatorNodeByName: Node was found!");
+                    found = true;
                     return la;
                 }
             }
         }
+
+        if(found == false){
+            System.out.println("getOperatorNodeByName: OperatorNode: "+name+" does not exist in Graph!");
+            System.exit(0);
+        }
+
         return null;
     }
 

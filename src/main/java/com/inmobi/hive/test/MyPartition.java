@@ -4,6 +4,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -12,17 +13,23 @@ import java.util.List;
  * Created by panos on 21/8/2016.
  */
 public class MyPartition {
-    String belongingDatabase;
-    String belongingTable;
-    String partitionName;
-    URI location;
-    Path partitionPath;
-    List<FieldSchema> allFields;
-    LinkedHashMap<String, String> keyValuePairs;
-    List<FieldSchema> partitionKeys;
+    String belongingDatabase = null;
+    String belongingTable = null;
+    String partitionName = null;
+    URI location = null;
+    Path partitionPath = null;
+    List<FieldSchema> allFields = new LinkedList<>();
+    LinkedHashMap<String, String> keyValuePairs = new LinkedHashMap<>();
+    List<FieldSchema> partitionKeys = new LinkedList<>();
     List<String> partitionValues;
-    List<String> bucketColsList;
-    int bucketCount;
+    List<String> bucketColsList = new LinkedList<>();
+    int bucketCount = 0;
+
+    //Handle Exareme Tables differently from Hive Tables
+    boolean isRootInput = false;
+    String rootHiveTableDefinition = "";
+    String rootHiveLocationPath = "";
+    List<String> secondaryNeededQueries = new LinkedList<>(); //Extra queries needed to properly transform Hive Partition to Exareme Partition
 
     public MyPartition(){
         belongingDatabase = null;
@@ -42,6 +49,131 @@ public class MyPartition {
         belongingTable = tbName;
         partitionName = pName;
     }
+
+    public List<String> getSecondaryNeededQueries() { return secondaryNeededQueries; }
+
+    public void createRootHiveTableDefinition(){
+        String columnsString = "";
+        String columnsString2 = "";
+
+        rootHiveTableDefinition = "";
+        rootHiveTableDefinition = "select ";
+        int i = 0;
+
+        List<FieldSchema> fieldsAndPartitionColumns = new LinkedList<>();
+
+        for(FieldSchema f : allFields){
+            fieldsAndPartitionColumns.add(f);
+        }
+
+        //for(FieldSchema f : partitionKeys){
+        //    fieldsAndPartitionColumns.add(f);
+        //}
+
+        for(FieldSchema f : fieldsAndPartitionColumns){
+            String colName = f.getName();
+            String colType = f.getType();
+            String exaremeType = "";
+
+            int colNumber = i+1;
+
+            String arithmeticName = "c"+colNumber;
+
+            if(colType.contains("int")){
+                exaremeType = "INT";
+            }
+            else if(colType.contains("string")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("decimal")){
+                exaremeType = "NUM";
+            }
+            else if(colType.contains("char")){
+                exaremeType = "TEXT";
+            }
+            else{
+                System.out.println("createRootHiveTableDefinition: Unknown Hive Type: "+colType);
+                System.exit(0);
+            }
+
+            if(i == allFields.size() - 1){
+                columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+" ");
+            }
+            else{
+                columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+",");
+            }
+
+            System.out.println("createRootHiveTableDefinition: Current columnsString: "+columnsString);
+
+            i++;
+        }
+
+        rootHiveTableDefinition = rootHiveTableDefinition.concat(columnsString);
+
+        System.out.println("RootHiveTableDefinition is: "+ rootHiveTableDefinition);
+
+        System.out.println("Partition Columns come last for partition... Partition Columns: " + partitionKeys.toString());
+
+        System.out.println("Creating extra required Queries for this Hive Partition...");
+
+        int j=0;
+        for(FieldSchema partitionCol : partitionKeys){
+            String alterQuery = "";
+            String updateQuery = "";
+            String partitionValue = partitionValues.get(j);
+
+            String colName = partitionCol.getName();
+            String colType = partitionCol.getType();
+            String exaremeType = "";
+
+            if(colType.contains("int")){
+                exaremeType = "INT";
+            }
+            else if(colType.contains("string")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("decimal")){
+                exaremeType = "NUM";
+            }
+            else if(colType.contains("char")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("float")){
+                exaremeType = "NUM";
+            }
+            else{
+                System.out.println("createRootHiveTableDefinition: Unknown Hive Type: (Partition Case) - "+colType);
+                System.exit(0);
+            }
+
+            alterQuery = " add column " + colName + " " + exaremeType + " ";
+            if(exaremeType.equals("TEXT"))
+                updateQuery = " set " + colName + " = '"+partitionValue+"' ";
+            else
+                updateQuery = " set " + colName + " = "+partitionValue+" ";
+
+            secondaryNeededQueries.add(alterQuery);
+            secondaryNeededQueries.add(updateQuery);
+
+            j++;
+        }
+
+
+    }
+
+    public void setRootHiveLocationPath(String path) {
+        rootHiveLocationPath = path; //Set the location path leading to the associated file in the HDFS
+        isRootInput = true;
+        createRootHiveTableDefinition();
+
+        System.out.println("RootHiveTableLocation is: "+ rootHiveLocationPath);
+    }
+
+    public String getRootHiveLocationPath() { return rootHiveLocationPath; }
+
+    public String getRootHiveTableDefinition() { return rootHiveTableDefinition; }
+
+    public boolean getIsRootInput() { return isRootInput; }
 
     public LinkedHashMap<String, String> getKeyValuePairs() { return keyValuePairs; }
 

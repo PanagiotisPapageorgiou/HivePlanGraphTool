@@ -16,7 +16,7 @@ public class OperatorQuery {
     String exaremeOutputTableName;
     String assignedContainer;
     MyTable outputTable;
-    List<String> usedColumns;
+    MyMap usedColumns;
     List<MyTable> inputTables;
 
     public OperatorQuery() {
@@ -27,24 +27,29 @@ public class OperatorQuery {
         exaremeOutputTableName = "";
         outputTable = new MyTable();
         inputTables = new LinkedList<>();
-        usedColumns = new LinkedList<>();
+        usedColumns = new MyMap();
     }
 
-    public void addUsedColumn(String c){
+    public void addUsedColumn(String c, String tableName){
 
-        if(usedColumns.size() > 0){
-            for(String s : usedColumns){
-                if(s.equals(c)){
-                    return;
+        List<ColumnTypePair> usedColumnList = usedColumns.getColumnAndTypeList();
+
+        if(usedColumnList.size() > 0){
+            for(ColumnTypePair p : usedColumnList){
+                if(p.getColumnName().equals(c)){
+                    if(p.getColumnType().equals(tableName)){
+                        return;
+                    }
                 }
             }
         }
 
-        usedColumns.add(c);
+        ColumnTypePair pair = new ColumnTypePair(c, tableName);
+        usedColumns.addPair(pair);
 
     }
 
-    public List<String> getUsedColumns() { return usedColumns; }
+    public MyMap getUsedColumns() { return usedColumns; }
 
     public String getAssignedContainer() { return assignedContainer; }
 
@@ -101,7 +106,7 @@ public class OperatorQuery {
         outputFile.println("\t\t\texaremeQueryString: ["+exaremeQueryString+"]");
         outputFile.flush();
         System.out.println("\t\t\tOutputTable(Name): "+outputTable.getTableName());
-        outputFile.println("			OutputTable(Name): "+outputTable.getTableName());
+        outputFile.println("\t\t\tOutputTable(Name): "+outputTable.getTableName());
         outputFile.flush();
         List<String> inputNames = new LinkedList<>();
         for(MyTable i : inputTables){

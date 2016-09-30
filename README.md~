@@ -1,7 +1,7 @@
 # HiveToExaremePlanConverter
 The following project aims to aid MADGIK (University of Athens Department of Informatics) Exareme project in using Map-Reduce logic on BigData. 
 
-Exareme Big Data project: https://github.com/madgik/exareme
+Exareme BigData project: https://github.com/madgik/exareme
 
 In order to achieve the above a given query is first run through a Hive on Hadoop(YARN) Minicluster and the execution plan for the query is obtained. Afterwards, the Hive Execution Plan is translated through a set of stages into an Exareme-on-HDFS query execution plan.
 
