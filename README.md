@@ -11,9 +11,9 @@ The above project was developed as part of my Bachelor Thesis with the assistanc
 
 --Installation Requirements--
 
--Java7 or above
+1) Java7 or above
 
--Maven3
+2) Maven3
 
 --How it works--
 
