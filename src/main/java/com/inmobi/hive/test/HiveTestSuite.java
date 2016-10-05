@@ -39,11 +39,11 @@ public class HiveTestSuite {
     }
 
     public void createTestCluster() {
-        this.createTestCluster(false, 0 , 0);
+        this.createTestCluster(false, 0 , 0, "");
     }
 
-    public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode) {
-        cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers);
+    public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeIP) {
+        cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers, exaremeIP);
         try {
             cluster.start(allowDynamicPartitioning, maxParts, maxPartsPerNode);
         } catch (Exception e) {

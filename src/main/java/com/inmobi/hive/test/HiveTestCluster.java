@@ -57,9 +57,12 @@ import org.apache.hive.jdbc.miniHS2.MiniHS2;
 import org.apache.hive.service.cli.HiveSQLException;
 
 import org.apache.hadoop.hive.ql.*;
+
 /*
  * This is class is used to model a minicluster and mini hive server to be 
- * used for testing.  
+ * used for testing. It also contains methods that handle the execution of
+ * a HiveQL statement giving the option to extract an OperatorGraph
+ * from its plan and then create an Exareme Plan from it
  */
 
 public class HiveTestCluster {
@@ -68,15 +71,20 @@ public class HiveTestCluster {
     private MiniHS2 miniHS2 = null;
     private Map<String, String> confOverlay;
     private HiveConf hiveConf;
-    private int numberOfTaskTrackers;
+    private int numberOfTaskTrackers; //NodeManagers in later versions
     private int numberOfDataNodes;
     PrintWriter clusterInfo = null;
     String currentDatabasePath;
+    String exaremeMiniClusterIP;
 
-    public HiveTestCluster(int numData, int numTasks){
+    //Used to assign Exareme Containers in RoundRobin fashion
+    private int lastNodeAssigned = -1;
+
+    public HiveTestCluster(int numData, int numTasks, String exaremeIP){
         currentDatabasePath = "";
         numberOfTaskTrackers = numTasks;
         numberOfDataNodes = numData;
+        exaremeMiniClusterIP = exaremeIP;
         File f = new File("src/main/resources/files/clusterInfo.txt");
         if(f.exists() && !f.isDirectory()) {
             f.delete();
@@ -129,6 +137,10 @@ public class HiveTestCluster {
 
         clusterInfo.println("NameNode Port: "+fs.getUri().getPort());
         clusterInfo.flush();
+        clusterInfo.println("Exareme MiniCluster IP: "+exaremeMiniClusterIP);
+        clusterInfo.flush();
+        clusterInfo.println("Nodes: "+numberOfDataNodes);
+        clusterInfo.flush();
 
     }
     
@@ -174,6 +186,21 @@ public class HiveTestCluster {
         return results;
     }
 
+    public int assignNextNode(){
+
+        if(numberOfDataNodes == 1){
+            return 0;
+        }
+
+        if(lastNodeAssigned == numberOfDataNodes - 1){
+            return 0;
+        }
+        else{
+            return lastNodeAssigned + 1;
+        }
+
+    }
+
     public Stage locateStageID(String stageID, List<Stage> stagesList){
 
         if(stagesList != null){
@@ -201,6 +228,13 @@ public class HiveTestCluster {
 
         return null;
     }
+
+    /*----------------------HIVE OPERATOR GRAPH CONSTRUCTION------------------------------------------*/
+    /*---                                                                                     --------*/
+    /*----A Hive Query Plan Consists of MapReduce Stages and each stage contains an Operator Graph----*/
+    /*----The goal of the below methods is to explore the stages of the plan and construct---*/
+    /*---the total Operator Graph for this Plan. This graph will be used later to construct---*/
+    /*---the Exareme Execution Plan                                                       ----*/
 
     public void diveFromOperatorRoot(org.apache.hadoop.hive.ql.exec.Operator rootOperator, List<org.apache.hadoop.hive.ql.exec.Operator> discoveredOperators){
 
@@ -888,6 +922,45 @@ public class HiveTestCluster {
 
     }
 
+    public void discoverStages(List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > rootTasks, List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > stagesList){
+
+        if(rootTasks != null){
+            for(Task t : rootTasks){
+                discoverStagesFromRoot(t, stagesList);
+            }
+        }
+    }
+
+    public void discoverStagesFromRoot(Task rootTask, List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > stagesList){
+
+        if(stagesList.contains(rootTask)){
+            return;
+        }
+
+        stagesList.add(rootTask);
+
+        System.out.println("Discovered new Stage: "+rootTask.getId());
+
+        if(rootTask.getDependentTasks() != null){
+            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > dependents = rootTask.getDependentTasks();
+            for(Task t1 : dependents){
+                discoverStagesFromRoot(t1, stagesList);
+            }
+        }
+
+        if(rootTask.getDependentTasks() != null){
+            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > children = rootTask.getDependentTasks();
+            for(Task t2 : children){
+                discoverStagesFromRoot(t2, stagesList);
+            }
+        }
+
+        return;
+    }
+
+
+    /*------Hive Input Tables Handling Methods--------*/
+
     public String getDataBaseOfEntity(String entityString){
         String dbName = "";
 
@@ -995,246 +1068,12 @@ public class HiveTestCluster {
 
     }
 
-    public List<AdpDBSelectOperator> createDummyExaremeOperatorsOneNodeNoPartitions(List<OperatorQuery> opQueriesList){
-
-        List<AdpDBSelectOperator> selectOperatorList = new LinkedList<>();
-
-        System.out.println("Creating Dummy Exareme Operators for One Node No Partitions...");
-
-        int i = 0;
-        for(OperatorQuery opQuery : opQueriesList){ //All RunQueries
-
-            /*---Create SQLSelect---*/
-            SQLSelect sqlSelect = new SQLSelect();
-            if(i == 0) {
-                System.out.println("Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
-                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
-                System.out.println("Setting OutputDataPattern=SAME for SQLSelect...");
-                sqlSelect.setOutputDataPattern(DataPattern.same);
-                System.out.println("Setting NumberOfOutputParts=-1 for SQLSelect...");
-                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
-                System.out.println("Setting ResultTableName for SQLSelect...");
-                //sqlSelect.setResultTable(opQuery.getOutputTableNames().get(0), true, false);
-                System.out.println("Setting PartsDefn=null for SQLSelect...");
-                sqlSelect.setPartsDefn(null);
-                System.out.println("Setting sqlQuery for SQLSelect...");
-                sqlSelect.setSql(opQuery.getExaremeQueryString());
-                Comments someComments = new Comments();
-                someComments.addLine("test_comment");
-                System.out.println("Setting sqlQuery for COmments...");
-                sqlSelect.setComments(someComments);
-
-            }
-            else if(i == 1){
-                System.out.println("Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
-                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
-                System.out.println("Setting OutputDataPattern=SAME for SQLSelect...");
-                sqlSelect.setOutputDataPattern(DataPattern.same);
-                System.out.println("Setting NumberOfOutputParts=-1 for SQLSelect...");
-                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
-                System.out.println("Setting ResultTableName for SQLSelect...");
-                //sqlSelect.setResultTable(opQuery.getOutputTableNames().get(0), false, false);
-                System.out.println("Setting PartsDefn=null for SQLSelect...");
-                sqlSelect.setPartsDefn(null);
-                System.out.println("Setting sqlQuery for SQLSelect...");
-                sqlSelect.setSql(opQuery.getExaremeQueryString());
-                Comments someComments = new Comments();
-                someComments.addLine("test_comment");
-                System.out.println("Setting sqlQuery for COmments...");
-                sqlSelect.setComments(someComments);
-            }
-            System.out.println("Testing created SQLSelect...\nSQLSelect:\n\t"+sqlSelect.toString());
-
-            /*---Create Select---*/
-            List<TableView> inputTableViews = new LinkedList<>();
-
-            //madgik.exareme.common.schema.Table inputTable = new madgik.exareme.common.schema.Table(opQuery.getInputTableNames().get(0));
-
-            /*if(i == 0) {
-                System.out.println("Setting inputTable SqlDefinition... - i="+i);
-                inputTable.setSqlDefinition("CREATE TABLE customer_demographics(\n" +
-                        "  cd_demo_sk INT,\n" +
-                        "  cd_gender TEXT,\n" +
-                        "  cd_marital_status TEXT,\n" +
-                        "  cd_education_status TEXT,\n" +
-                        "  cd_purchase_estimate INT,\n" +
-                        "  cd_credit_rating TEXT,\n" +
-                        "  cd_dep_count INT,\n" +
-                        "  cd_dep_employed_count INT,\n" +
-                        "  cd_dep_college_count INT\n" +
-                        ")");
-                System.out.println("Setting inputTable setTemp... - i="+i);
-                inputTable.setTemp(false);
-                System.out.println("Setting inputTable setLevel=-1 - i="+i);
-                inputTable.setLevel(-1);
-
-                System.out.println("Setting Initialising InputTableView - i="+i);
-                TableView inputTableView = new TableView(inputTable);
-                System.out.println("Setting inputTableView DataPattern=CARTESIAN_PRODUCT - i="+i);
-                inputTableView.setPattern(DataPattern.cartesian_product);
-                System.out.println("Setting inputTableView setNumOfPartitions=-1 - i="+i);
-                inputTableView.setNumOfPartitions(-1);
-                System.out.println("Setting inputTableView addUsedColumn=cd_demo_sk - i="+i);
-                inputTableView.addUsedColumn("cd_demo_sk");
-                System.out.println("Setting inputTableView addUsedColumn=cd_education_status - i="+i);
-                inputTableView.addUsedColumn("cd_education_status");
-
-                inputTableViews.add(inputTableView);
-
-            }
-            else if(i == 1){
-                System.out.println("Setting inputTable SqlDefinition... - i="+i);
-                inputTable.setSqlDefinition("CREATE TABLE RS_15(\n" +
-                        "  cd_demo_sk INT\n" +
-                        ")");
-                System.out.println("Setting inputTable setTemp... - i="+i);
-                inputTable.setTemp(true);
-                System.out.println("Setting inputTable setLevel=1 - i="+i);
-                inputTable.setLevel(1);
-
-                System.out.println("Setting Initialising InputTableView - i="+i);
-                TableView inputTableView = new TableView(inputTable);
-                System.out.println("Setting inputTableView DataPattern=CARTESIAN_PRODUCT - i="+i);
-                inputTableView.setPattern(DataPattern.cartesian_product);
-                System.out.println("Setting inputTableView setNumOfPartitions=-1 - i="+i);
-                inputTableView.setNumOfPartitions(-1);
-                System.out.println("Setting inputTableView addUsedColumn=cd_demo_sk - i="+i);
-                inputTableView.addUsedColumn("cd_demo_sk");
-
-                inputTableViews.add(inputTableView);
-            }*/
-
-            /*madgik.exareme.common.schema.Table outputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTableNames().get(0));
-            TableView outputTableView;
-
-            if(i == 0){
-                System.out.println("Setting outputTable SqlDefinition... - i="+i);
-                outputTable.setSqlDefinition("CREATE TABLE RS_15(\n" +
-                        "  cd_demo_sk INT\n" +
-                        ")");
-                System.out.println("Setting outputTable setTemp... - i="+i);
-                outputTable.setTemp(true);
-                System.out.println("Setting outputTable setLevel=1 - i="+i);
-                outputTable.setLevel(1);
-
-                System.out.println("Setting Initialising OutputTableView - i="+i);
-                outputTableView = new TableView(outputTable);
-                System.out.println("Setting outputTableView DataPattern=SAME - i="+i);
-                outputTableView.setPattern(DataPattern.same);
-                System.out.println("Setting outputTableView setNumOfPartitions=-1 - i="+i);
-                outputTableView.setNumOfPartitions(-1);
-
-                System.out.println("Setting initialising SelectQuery - i="+i);
-                Select selectQuery = new Select(i, sqlSelect, outputTableView);
-                System.out.println("Adding InputTableViews to Select...");
-                for(TableView inputV : inputTableViews){
-                    selectQuery.addInput(inputV);
-                }
-                System.out.println("Adding QueryStatement to Select...");
-                selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
-                System.out.println("Setting Query of Select...");
-                selectQuery.setQuery(opQuery.getExaremeQueryString());
-                System.out.println("Setting Mappings of Select...");
-                selectQuery.setMappings(null);
-                System.out.println("Setting DatabaseDir of Select...");
-                selectQuery.setDatabaseDir("/base/warehouse/tpcds.db");
-
-                System.out.println("Printing created SELECT for Debugging...\n\t"+selectQuery.toString());
-
-                System.out.println("Setting initialising AdpDBSelectOperator - i="+i);
-                AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, i);
-
-                //exaremeSelectOperator.addInput(opQuery.getInputTableNames().get(0), 0);
-                //exaremeSelectOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
-
-                selectOperatorList.add(exaremeSelectOperator);
-
-                System.out.println("Testing exaremeSelectOperator...\n\t"+exaremeSelectOperator.toString());
-
-            }
-            else if(i == 1){
-                System.out.println("Setting outputTable SqlDefinition... - i="+i);
-                outputTable.setSqlDefinition("CREATE TABLE OP_21(\n" +
-                        "  cd_demo_sk INT\n" +
-                        ")");
-                System.out.println("Setting outputTable setTemp... - i="+i);
-                outputTable.setTemp(false);
-                System.out.println("Setting outputTable setLevel=2 - i="+i);
-                outputTable.setLevel(2);
-
-                System.out.println("Setting Initialising OutputTableView - i="+i);
-                outputTableView = new TableView(outputTable);
-                System.out.println("Setting outputTableView DataPattern=SAME - i="+i);
-                outputTableView.setPattern(DataPattern.same);
-                System.out.println("Setting outputTableView setNumOfPartitions=-1 - i="+i);
-                outputTableView.setNumOfPartitions(1);
-
-                System.out.println("Setting initialising SelectQuery - i="+i);
-                Select selectQuery = new Select(i, sqlSelect, outputTableView);
-
-                System.out.println("Adding InputTableViews to Select...");
-                for(TableView inputV : inputTableViews){
-                    selectQuery.addInput(inputV);
-                }
-                System.out.println("Adding QueryStatement to Select...");
-                selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
-                System.out.println("Setting Query of Select...");
-                selectQuery.setQuery(opQuery.getExaremeQueryString());
-                System.out.println("Setting Mappings of Select...");
-                selectQuery.setMappings(null);
-                System.out.println("Setting DatabaseDir of Select...");
-                selectQuery.setDatabaseDir("/base/warehouse/tpcds.db");
-
-                System.out.println("Printing created SELECT for Debugging...\n\t"+selectQuery.toString());
-
-                System.out.println("Setting initialising AdpDBSelectOperator - i="+i);
-                AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, i);
-
-                //exaremeSelectOperator.addInput(opQuery.getInputTableNames().get(0), 0);
-                //exaremeSelectOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
-
-                selectOperatorList.add(exaremeSelectOperator);
-
-                System.out.println("Testing exaremeSelectOperator...\n\t"+exaremeSelectOperator.toString());
-
-                //Create tableUnion
-                System.out.println("Setting initialising TableUnion SelectQuery - i="+i);
-                Select unionSelect = new Select(i+1, sqlSelect, outputTableView);
-
-                System.out.println("Adding InputTableViews to Select...");
-                for(TableView inputV : inputTableViews){
-                    unionSelect.addInput(inputV);
-                }
-                System.out.println("Adding QueryStatement to Select...");
-                unionSelect.addQueryStatement(opQuery.getExaremeQueryString());
-                System.out.println("Setting Query of Select...");
-                unionSelect.setQuery("select * from op_21");
-                System.out.println("Setting Mappings of Select...");
-                unionSelect.setMappings(null);
-                System.out.println("Setting DatabaseDir of Select...");
-                unionSelect.setDatabaseDir("/base/warehouse/tpcds.db");
-
-                System.out.println("Printing created SELECT for Debugging...\n\t"+unionSelect.toString());
-
-
-                System.out.println("Setting initialising AdpDBSelectOperator(TableUnion) - i="+i+1);
-                AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, i+1);
-
-                //exaremeUnionOperator.addInput(opQuery.getInputTableNames().get(0), 0);
-                //exaremeUnionOperator.addOutput(opQuery.getOutputTableNames().get(0), 0);
-
-                selectOperatorList.add(exaremeUnionOperator);
-
-                System.out.println("Testing exaremeUnionOperator...\n\t"+exaremeUnionOperator.toString());
-            }*/
-
-            i++;
-
-        }
-
-        return selectOperatorList;
-
-    }
+    /*-----------------------------HIVE TO EXAREME PLAN CONVERSION-----------------------------*/
+    /*----The Below method is the "main" method for Hive Plan to Exareme Plan translation------*/
+    /*----First we access the Hive Plan and use the above methods to locate the Input Tables---*/
+    /*----Then we explored the Hive Plan and create an Graph of MapReduce Operators (ExaremeGraph)----*/
+    /*----Then the ExaremeGraph will be fed to QueryBuilder in order to create a set of Exareme Operators---*/
+    /*----and finally print the Exareme Plan                                                            ---*/
 
     public void createExaremeOutputFromExec(List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> roots, PrintWriter outputFile, QueryPlan queryPlan, List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> stagesList, String exaremePlanPath){
 
@@ -1243,6 +1082,8 @@ public class HiveTestCluster {
         List<Task> visitedStagesSimpler = new LinkedList<>();
 
         List<org.apache.hadoop.hive.ql.exec.Task<? extends java.io.Serializable>> newRoots = new LinkedList<>();
+
+        /*------------HANDLE INPUT ENTITIES OF PLAN--------------------*/
 
         List<MyTable> inputTables = new LinkedList<>();
         List<MyPartition> inputPartitions = new LinkedList<>();
@@ -1833,6 +1674,8 @@ public class HiveTestCluster {
             }
         }
 
+        /*-----------------EXPLORE THE HIVE PLAN STAGES--------------------*/
+
         if(stagesList.size() > 0) { //Normal Stages/Tasks except from FetchTask exist
             System.out.println("\nSimplifying DAG of Stages...\n");
 
@@ -1965,21 +1808,40 @@ public class HiveTestCluster {
 
         }
 
-        //Creating exaremePlan
+        /*----------------CREATE THE EXAREME PLAN-------------------*/
+
         if(queryPlan.getQueryString().equals("use tpcds_db")) {
             System.out.println("Skipping DATABASE command query...");
         }
         else{
-
             //Build Queries for Exareme Operators
             QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions, currentDatabasePath);
             queryBuilder.createExaOperators(outputFile);
+
+            //Create AdpDBSelectOperators
             List<AdpDBSelectOperator> exaremeOperators = queryBuilder.translateToExaremeOps();
+
             List<OpLink> opLinks = queryBuilder.getOpLinksList();
 
             List<ExaremeOperator> finalExaOps = new LinkedList<>();
+            String previousName = "";
+            int sameNameCount = 0;
             for(int l = 0; l < exaremeOperators.size(); l++){
                 AdpDBSelectOperator exaOp = exaremeOperators.get(l);
+
+                if(previousName.equals("")){
+                    previousName = exaOp.getQuery().getOutputTable().getName();
+                }
+                else{
+                    if(previousName.equals(exaOp.getQuery().getOutputTable().getName())){
+                        sameNameCount++;
+                    }
+                    else{
+                        sameNameCount = 0;
+                        previousName = exaOp.getQuery().getOutputTable().getName();
+                    }
+                }
+
                 List<Parameter> parameterList = new LinkedList<>();
                 StringParameter behaviourP = new StringParameter("behavior", "store_and_forward");
                 parameterList.add(behaviourP);
@@ -1997,12 +1859,38 @@ public class HiveTestCluster {
                 ExaremeOperator finalOp;
 
                 if(l == exaremeOperators.size() - 1){
-                    finalOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.data.TableUnionReplicator", "TR_"+exaremeOperators.get(l).getQuery().getOutputTable().getTable().getName()+"_P_0", exaOp, parameterList, l);
+                    finalOp = new ExaremeOperator("c"+new String(Integer.toString(assignNextNode())), "madgik.exareme.master.engine.executor.remote.operator.data.TableUnionReplicator", "TR_"+exaOp.getQuery().getOutputTable().getTable().getName()+"_P_0", exaOp, parameterList, l);
+                    lastNodeAssigned = assignNextNode();
                 }
                 else {
-                    finalOp = new ExaremeOperator("c0", "madgik.exareme.master.engine.executor.remote.operator.process.ExecuteSelect", queryBuilder.getQueryList().get(l).getExaremeOutputTableName(), exaOp, parameterList, l);
+                    finalOp = new ExaremeOperator("c"+new String(Integer.toString(assignNextNode())), "madgik.exareme.master.engine.executor.remote.operator.process.ExecuteSelect", "R_"+exaOp.getQuery().getOutputTable().getTable().getName()+"_"+sameNameCount, exaOp, parameterList, l);
+                    lastNodeAssigned = assignNextNode();
                 }
                 finalExaOps.add(finalOp);
+            }
+
+            if(numberOfDataNodes > 1) {
+                System.out.println("-----Round Robin Assignment of Containers for OpLinks------");
+                for(OpLink aLink : opLinks){
+
+                    //Search through all Operators
+                    for(ExaremeOperator exaOp : finalExaOps){
+                        if(exaOp.getResultsName().equals(aLink.getToTable())){
+                            aLink.setContainerName(exaOp.getContainerName());
+                        }
+                    }
+
+                    if(aLink.getBrothers().size() > 0){
+                        for(OpLink brother : aLink.getBrothers()){
+                            //Search through all Operators
+                            for(ExaremeOperator exaOp : finalExaOps){
+                                if(exaOp.getResultsName().equals(brother.getToTable())){
+                                    brother.setContainerName(exaOp.getContainerName());
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             System.out.println("===============================Constructing Exareme Plan...=====================================");
@@ -2010,8 +1898,24 @@ public class HiveTestCluster {
             outputFile.flush();
             //Build Containers for Exareme Plan
             List<Container> containers = new LinkedList<>();
-            Container singleNode = new Container("c0", "192.168.1.6_container_192.168.1.6", 1098, 8088);
-            containers.add(singleNode);
+
+            if(numberOfDataNodes == 1) {
+                Container singleNode = new Container("c0", exaremeMiniClusterIP + "_container_" + exaremeMiniClusterIP, 1098, 8088);
+                containers.add(singleNode);
+            }
+            else{
+                for(int c = 0; c < numberOfDataNodes; c++){
+                    Container node;
+                    if(c == 0) {
+                        node = new Container("c" + new String(Integer.toString(0)), exaremeMiniClusterIP + "_container_" + exaremeMiniClusterIP, 1098, 8088);
+                    }
+                    else{
+                        node = new Container("c" + new String(Integer.toString(c)), exaremeMiniClusterIP + "_container_" + exaremeMiniClusterIP + "_" + new String(Integer.toString(c-1)), 1098, 8088 + c);
+                    }
+
+                    containers.add(node);
+                }
+            }
 
             System.out.println("\n\t------Containers------");
             outputFile.println("\n\t------Containers------");
@@ -2026,6 +1930,7 @@ public class HiveTestCluster {
             System.out.println("\n\t------Operators------");
             outputFile.println("\n\t------Operators------");
             outputFile.flush();
+
             for(ExaremeOperator ex : finalExaOps){
 
                 System.out.println("\t\tContainer: "+ex.getContainerName());
@@ -2090,6 +1995,38 @@ public class HiveTestCluster {
                         outputFile.flush();
                     }
                 }
+
+                if(opLink.getBrothers().size() > 0){
+                    for(OpLink brotherLink : opLink.getBrothers()){
+                        System.out.println("\t\tContainerName: "+brotherLink.getContainerName());
+                        outputFile.println("\t\tContainerName: "+brotherLink.getContainerName());
+                        outputFile.flush();
+                        System.out.println("\t\tFromTable: "+brotherLink.getFromTable());
+                        outputFile.println("\t\tFromTable: "+brotherLink.getFromTable());
+                        outputFile.flush();
+                        System.out.println("\t\tToTable: "+brotherLink.getToTable());
+                        outputFile.println("\t\tToTable: "+brotherLink.getToTable());
+                        outputFile.flush();
+                        System.out.println("\t\tParameters: ");
+                        outputFile.println("\t\tParameters: ");
+                        outputFile.flush();
+                        for(Parameter p : brotherLink.getParameters()){
+                            if(p instanceof NumParameter){
+                                NumParameter nP = (NumParameter) p;
+                                System.out.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+nP.getValue());
+                                outputFile.println("\t\t\tParameterType: "+nP.getParemeterType()+" - Value: "+nP.getValue());
+                                outputFile.flush();
+                            }
+                            else{
+                                StringParameter sP = (StringParameter) p;
+                                System.out.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+sP.getValue());
+                                outputFile.println("\t\t\tParameterType: "+sP.getParemeterType()+" - Value: "+sP.getValue());
+                                outputFile.flush();
+                            }
+                        }
+                    }
+                }
+
             }
 
             File f3 = new File(exaremePlanPath);
@@ -2115,41 +2052,14 @@ public class HiveTestCluster {
         }
     }
 
-    public void discoverStages(List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > rootTasks, List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > stagesList){
+    /*----------------HANDLE A HiveQL Statement-------------------*/
+    /*---Options:                                                 */
+    /*-----------1) Run Query normally                            */
+    /*-----------2) Extract OperatorGraph from Plan               */
+    /*-----------3) Skip                                          */
+    /*-----------4) Don't run and run an hdfs LS command instead  */
+    /*-----------5) Exit                                          */
 
-        if(rootTasks != null){
-            for(Task t : rootTasks){
-                discoverStagesFromRoot(t, stagesList);
-            }
-        }
-    }
-
-    public void discoverStagesFromRoot(Task rootTask, List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > stagesList){
-
-        if(stagesList.contains(rootTask)){
-            return;
-        }
-
-        stagesList.add(rootTask);
-
-        System.out.println("Discovered new Stage: "+rootTask.getId());
-
-        if(rootTask.getDependentTasks() != null){
-            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > dependents = rootTask.getDependentTasks();
-            for(Task t1 : dependents){
-                discoverStagesFromRoot(t1, stagesList);
-            }
-        }
-
-        if(rootTask.getDependentTasks() != null){
-            List<org.apache.hadoop.hive.ql.exec.Task <?extends java.io.Serializable> > children = rootTask.getDependentTasks();
-            for(Task t2 : children){
-                discoverStagesFromRoot(t2, stagesList);
-            }
-        }
-
-        return;
-    }
 
     private List<String> processStatement(String statement, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, long i) {
         List<String> results = new LinkedList<String>();

@@ -688,9 +688,6 @@ public class QueryBuilder {
                     System.out.println(rootNode.getOperator().getOperatorId() + ": InputTable: " + inputTables.get(0) + " has no Partitions!");
                 }
                 else{
-                    System.out.println("PARTITIONS ARE NOT SUPPORTED YET!");
-                    System.exit(0);
-
                     System.out.println(rootNode.getOperator().getOperatorId() + ": InputTable: "+inputTables.get(0)+" HAS Partitions!");
 
                     int countPartitions = inputTables.get(0).getAllPartitions().size();
@@ -894,11 +891,21 @@ public class QueryBuilder {
 
                     if(wantedTable.getHasPartitions()){
                         System.out.println(root.getOperator().getOperatorId() + ": InputTable: "+tableName+" has Partitions! Partitions are not supported as of now!");
-                        System.exit(0);
-                    }
-                    else{
-                        System.out.println(root.getOperator().getOperatorId() + ": InputTable: "+tableName+" does not have Partitions...");
+                        int countPartitions = wantedTable.getAllPartitions().size();
 
+                        System.out.println(root.getOperator().getOperatorId() + " Current TableScanOperator needs access to: "+countPartitions+" partitions...");
+                        System.out.println(root.getOperator().getOperatorId() + " Listing PartitionNames for easier debugging...");
+                        for(MyPartition m : wantedTable.getAllPartitions()){
+                            System.out.println(root.getOperator().getOperatorId() + " PartitionName: "+m.getPartitionName());
+                        }
+
+                        System.out.println(root.getOperator().getOperatorId() + " Current Strategy: Treat each Partition as seperate table and Output Table will have only one 1 Partition");
+                        System.out.println(root.getOperator().getOperatorId() + " Since every Partition will follow the same exactly Operator Tree it is pointless to run multiple OperatorQuery recursive Trees...");
+                        System.out.println(root.getOperator().getOperatorId() + " Partitions will be dealt with in the translateToExaremeOps function...");
+                    }
+                    else {
+                        System.out.println(root.getOperator().getOperatorId() + ": InputTable: " + tableName + " does not have Partitions...");
+                    }
                         /*----Begin an Operator Query----*/
                         OperatorQuery opQuery = new OperatorQuery();
                         opQuery.setDataBasePath(currentDatabasePath);
@@ -1052,7 +1059,7 @@ public class QueryBuilder {
                             System.exit(0);
                         }
 
-                    }
+
 
                 }
                 else{
@@ -2045,7 +2052,7 @@ public class QueryBuilder {
                 }
             }
             else if(fatherOperatorNode.getOperator() instanceof FilterOperator){
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is GroupByOperator: "+fatherOperatorNode.getOperatorName());
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is FilterOperator: "+fatherOperatorNode.getOperatorName());
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Adding new possible Aliases...");
                 String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
 
@@ -2225,7 +2232,209 @@ public class QueryBuilder {
                             goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
                         }
                         else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for RS-->GBY-->? Connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for FIL-->GBY-->? Connection!");
+                            System.exit(0);
+                        }
+                    }
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children != 1!: ");
+                        System.exit(0);
+                    }
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children == NULL!: ");
+                    System.exit(0);
+                }
+            }
+            else if(fatherOperatorNode.getOperator() instanceof JoinOperator){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is JoinOperator: "+fatherOperatorNode.getOperatorName());
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Adding new possible Aliases...");
+                String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+
+                GroupByOperator groupByParent = (GroupByOperator) currentOperatorNode.getOperator();
+                GroupByDesc groupByDesc = groupByParent.getConf();
+
+                if(groupByParent == null){
+                    System.out.println("GroupByDesc is null!");
+                    System.exit(0);
+                }
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Discovering Group By Keys...");
+                List<String> groupByKeys = new LinkedList<>();
+                MyMap changeMap = new MyMap();
+                if(groupByDesc != null){
+                    ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
+                    if (keys != null) {
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
+                        for (ExprNodeDesc k : keys) {
+                            if (k != null) {
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
+                                if (k.getCols() != null) {
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
+                                    if(k.getCols().size() > 1){
+                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
+                                        System.exit(9);
+                                    }
+                                    else if(k.getCols().size() == 1){
+                                        String col = k.getCols().get(0);
+                                        //if(col.contains("KEY.")){
+                                        //    col = col.replace("KEY.", "");
+                                        //}
+                                        //else if(col.contains("VALUE.")){
+                                        //    col = col.replace("VALUE.", "");
+                                        //}
+
+
+                                        boolean fg = false;
+                                        if(groupByKeys.size() == 0) groupByKeys.add(col);
+                                        else {
+                                            for (String g : groupByKeys) {
+                                                if (g.equals(col)) {
+                                                    fg = true;
+                                                    break;
+                                                }
+                                            }
+                                            if (fg == false)
+                                                groupByKeys.add(col);
+                                        }
+                                    }
+                                } else {
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
+                                }
+                            }
+                        }
+
+                        List<String> realColumnAliases = new LinkedList<>();
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
+                        for(String s : groupByKeys){
+                            boolean matchFound = false;
+                            List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
+                            for(ColumnTypePair c : pairs){
+                                if(c.getColumnName().equals(s)){
+                                    realColumnAliases.add(c.getColumnName());
+                                    matchFound = true;
+                                    break;
+                                }
+                                else{
+                                    List<StringParameter> altAliases = c.getAltAliasPairs();
+                                    if(altAliases != null){
+                                        if(altAliases.size() > 0){
+                                            for(StringParameter sP : altAliases){
+                                                if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
+                                                    if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
+                                                        realColumnAliases.add(c.getColumnName());
+                                                        matchFound = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+
+                                            if(matchFound == true){
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if(matchFound == false){
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
+                            }
+                        }
+
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
+
+                        String expression = "";
+                        int i = 0;
+                        for(i=0; i < realColumnAliases.size(); i++){
+                            if(i == realColumnAliases.size() - 1){
+                                expression = expression.concat(" "+realColumnAliases.get(i));
+                            }
+                            else{
+                                expression = expression.concat(" "+realColumnAliases.get(i)+",");
+                            }
+                        }
+
+                        /*---Locate new USED Columns----*/
+                        for(String s : realColumnAliases){
+                            currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
+                        }
+
+                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
+                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
+
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+                    }
+                }
+
+                //Now check for aggregate functions ie HAVING
+                /*ArrayList<AggregationDesc> aggregationDescs = groupByDesc.getAggregators();
+                boolean partialAggregation = false;
+                if(aggregationDescs != null){
+                    if(aggregationDescs.size() > 0){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Aggregations exist!");
+                        if(aggregationDescs.size() > 1){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": More than 1 Aggregation! Unsupported for now!");
+                            System.exit(0);
+                        }
+
+                        AggregationDesc aggDesc = aggregationDescs.get(0);
+                        if(aggDesc.getGenericUDAFName().equals("count")){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Count Aggregation Exists!");
+                            if(aggDesc.getParameters().size() > 1){
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": More than 1 Count Parameters! Unsupported for Now!");
+                                System.exit(0);
+                            }
+
+                            //Get Col Parameter
+                            String colName = aggDesc.getParameters().get(0).getCols().get(0);
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Count Parameter: "+colName);
+
+                            //Form having expression
+                            currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" having count("+colName+") "));
+                            currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" having count("+colName+") "));
+
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query currently is: "+currentOpQuery.getLocalQueryString());
+
+                            aggDesc.getParameters().get(0).getTypeInfo(
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Aggregation : "+currentOpQuery.getLocalQueryString());
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Check if current Schema contains bigint...and replace with count expression...");
+                        }
+                        else{
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Aggregation!");
+                            System.exit(0);
+                        }
+                    }
+                }*/
+
+                List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+                if(children != null){
+                    if(children.size() == 1){
+                        Operator<?> child = children.get(0);
+                        if(child instanceof SelectOperator){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered GBY--->SEL connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                            /*---Moving to child---*/
+                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+                        }
+                        else if(child instanceof LimitOperator){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered GBY--->LIM connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                            /*---Moving to child---*/
+                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+                        }
+                        else if(child instanceof FileSinkOperator){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered GBY--->FS connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                            /*---Moving to child---*/
+                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+                        }
+                        else{
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for JOIN-->GBY-->? Connection!");
                             System.exit(0);
                         }
                     }
@@ -4570,6 +4779,13 @@ public class QueryBuilder {
                             goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
 
                         }
+                        else if(child instanceof GroupByOperator){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->GBY connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Moving to child operator...");
+
+                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+
+                        }
                         else {
                             System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for Join...");
                             System.exit(0);
@@ -5167,7 +5383,110 @@ public class QueryBuilder {
         return definition;
     }
 
+
+    public Integer[][] allUniqueCombinations(List<List<Integer>> listOfPartitionLists){ //[ [0,1], [0], [0,1,2] ] etc.
+        int n = listOfPartitionLists.size();                                            //Credits to: http://stackoverflow.com/questions/9591561/java-cartesian-product-of-a-list-of-lists
+        int solutions = 1;
+
+        for(List<Integer> vector : listOfPartitionLists) {
+            solutions *= vector.size();
+        }
+
+        Integer[][] allCombinations = new Integer[solutions][];
+
+        for(int i = 0; i < solutions; i++) {
+            Vector<Integer> combination = new Vector<Integer>(n);
+            int j = 1;
+            for(List<Integer> vec : listOfPartitionLists) {
+                combination.add(vec.get((i/j)%vec.size()));
+                j *= vec.size();
+            }
+            allCombinations[i] = combination.toArray(new Integer[n]);
+        }
+
+        return allCombinations;
+    }
+
+    public List<List<Integer>> createCartesianCombinationsOfInputs(List<MyTable> inputTables){
+
+        LinkedList<List<Integer>> listOfCombinations = new LinkedList<>();
+
+        if(inputTables.size() == 0){
+            System.out.println("createCartesianCombinationsOfInputs: Empty inputTables List...");
+            System.exit(0);
+        }
+
+        if(inputTables.size() == 1){ //Only 1 possible combination...
+            System.out.println("createCartesianCombinationsOfInputs: Only 1 InputTable case...");
+            LinkedList<Integer> combination = new LinkedList<>();
+            MyTable inputTable = inputTables.get(0);
+
+            if(inputTable.getHasPartitions() == false){
+                Integer number = 0;
+                combination.add(number);
+            }
+            else{
+                if(inputTable.getAllPartitions().size() == 1){
+                    Integer number = 0;
+                    combination.add(number);
+                }
+                else{
+                    for(int i = 0; i < inputTable.getAllPartitions().size(); i++){
+                        combination.add(i);
+                    }
+                }
+            }
+
+            listOfCombinations.add(combination);
+        }
+        else{
+            System.out.println("createCartesianCombinationsOfInputs: Multiple Input Tables...");
+            List<List<Integer>> listOfPartitionLists = new LinkedList<>();
+
+            for(MyTable inputT : inputTables){
+                List<Integer> combination = new LinkedList<>();
+                if(inputT.getHasPartitions() == false){
+                    Integer number = 0;
+                    combination.add(number);
+                }
+                else{
+                    if(inputT.getAllPartitions().size() == 1){
+                        Integer number = 0;
+                        combination.add(number);
+                    }
+                    else{
+                        for(int i = 0; i < inputT.getAllPartitions().size(); i++){
+                            combination.add(i);
+                        }
+                    }
+                }
+
+                listOfPartitionLists.add(combination);
+            }
+
+            Integer[][] allCombos = allUniqueCombinations(listOfPartitionLists);
+            for(int i = 0; i < allCombos.length; i++){
+                List currentCombo = new LinkedList<>();
+                for(int j = 0; j < allCombos[i].length; j++){
+                    currentCombo.add(allCombos[i][j]);
+                }
+                listOfCombinations.add(currentCombo);
+            }
+
+        }
+
+        System.out.println("createCartesianCombinationsOfInputs: Printing all combinations...");
+        for(List<Integer> combo : listOfCombinations){
+            System.out.println("createCartesianCombinationsOfInputs: "+combo.toString());
+        }
+
+        return listOfCombinations;
+
+    }
+
     public List<AdpDBSelectOperator> translateToExaremeOps(){ //This method translated an OperatorQuery to An AdpDBSelectOperator
+
+        LinkedHashMap<String, Integer> outputTablesWithInputParts = new LinkedHashMap<>();
 
         List<AdpDBSelectOperator> exaremeOperators = new LinkedList<>();
 
@@ -5187,55 +5506,305 @@ public class QueryBuilder {
         for(int i = 0; i < allQueries.size(); i++){ //For Every Operator Query
             OperatorQuery opQuery = allQueries.get(i);
             System.out.flush();
-            List<TableView> inputTableViews = new LinkedList<>();
-
-            /*---Build SQLSelect---*/
-            System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
-            System.out.flush();
-
-            SQLSelect sqlSelect = new SQLSelect();
 
             if(opQuery.getInputTables().size() == 1){ //OperatorQuery has only 1 InputTable
-                sqlSelect = new SQLSelect();
-                System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
-                System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+
+                System.out.println("translateToExaremeOps: Checking if the InputTable has Partitions...");
                 System.out.flush();
-                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
-                sqlSelect.setOutputDataPattern(DataPattern.same);
-                System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
-                if (i == allQueries.size() - 1) {
-                    System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
-                    System.out.flush();
-                    sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
-                } else {
-                    System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
-                    System.out.flush();
-                    sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+                boolean partitionsExist = false;
+                if(opQuery.getInputTables().get(0).getHasPartitions() == true){
+                    partitionsExist = true;
                 }
-                System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setPartsDefn(null);
-                System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setSql(opQuery.getExaremeQueryString());
-                Comments someComments = new Comments();
-                someComments.addLine("test_comment");
-                System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
-                System.out.flush();
-                sqlSelect.setComments(someComments);
 
-                /*--------------Build Select----------------*/
-                MyTable inputTable = opQuery.getInputTables().get(0); //Get Input Table
+                if(partitionsExist == true){ //SINGLE TABLE - MULTIPLE PARTITIONS
 
-                //Now Check if InputTable has Partitions and treat Partition Case accordingly
-                if(inputTable.getHasPartitions() == false) {
-                    System.out.println("translateToExaremeOps: InputTable: "+inputTable.getTableName()+" does not have any partitions...");
+                    System.out.println("translateToExaremeOps: InputTable has Partitions and each Partition will create a different Exareme Operator!\n\t");
+
+                    MyTable inputTable = opQuery.getInputTables().get(0);
+                    List<MyPartition> myPartitions = inputTable.getAllPartitions();
+
+                    System.out.println("translateToExaremeOps: We have: "+myPartitions.size()+" input partitions!");
+
+                    int j = 0;
+                    for(MyPartition inputPartition : myPartitions){
+                        List<TableView> inputTableViews = new LinkedList<>();
+
+                        /*---Build SQLSelect---*/
+                        System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
+                        System.out.flush();
+
+                        SQLSelect sqlSelect;
+
+                        sqlSelect = new SQLSelect();
+                        System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                        sqlSelect.setOutputDataPattern(DataPattern.same);
+
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=1 for SQLSelect...(Partitions exist)");
+                        System.out.flush();
+                        sqlSelect.setNumberOfOutputPartitions(1); //means partitions exist
+
+                        System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                        System.out.flush();
+
+                        if (i == allQueries.size() - 1) {
+                            System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
+                            System.out.flush();
+                            sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
+                            System.out.flush();
+                            sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+                        }
+
+                        System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setPartsDefn(null);
+                        System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setSql(opQuery.getExaremeQueryString());
+                        Comments someComments = new Comments();
+                        someComments.addLine("test_comment");
+                        System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                        System.out.flush();
+                        sqlSelect.setComments(someComments);
+
+                        madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputPartition.getBelogingTableName().toLowerCase());
+                        String exaremeInputTdef = exaremeTableDefinition(inputPartition);
+
+                        System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef);
+                        System.out.flush();
+
+                        exaInputTable.setSqlDefinition(exaremeInputTdef);
+                        if (currentInputLevel == -1) {
+                            System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
+                            exaInputTable.setTemp(false);
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                            exaInputTable.setTemp(true);
+                        }
+                        System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
+                        System.out.flush();
+                        exaInputTable.setLevel(currentInputLevel);
+
+                        System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                        System.out.flush();
+                        TableView inputTableView = null;
+
+                        if (inputTable.getIsRootInput()) {
+                            System.out.println("translateToExaremeOps: This Hive Partition is a Root Input and we need more details...");
+                            inputTableView = new TableView(exaInputTable, inputPartition.getRootHiveLocationPath(), inputPartition.getRootHiveTableDefinition(), inputPartition.getSecondaryNeededQueries());
+                            System.out.println("translateToExaremeOps: RootHiveLocationPath: " + inputPartition.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + inputPartition.getRootHiveTableDefinition());
+                        } else {
+                            inputTableView = new TableView(exaInputTable);
+                        }
+
+                        System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                        System.out.flush();
+                        inputTableView.setPattern(DataPattern.cartesian_product);
+                        System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                        System.out.flush();
+                        inputTableView.setNumOfPartitions(-1);
+
+                        System.out.println("translateToExaremeOps: Adding used Columns...");
+                        System.out.flush();
+
+                        MyMap usedColumns = opQuery.getUsedColumns();
+                        List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
+
+                        for (ColumnTypePair colPair : usedColsList) {
+                            if(colPair.getColumnType().equals(inputTable.getTableName())) {
+                                inputTableView.addUsedColumn(colPair.getColumnName());
+                                System.out.println("translateToExaremeOps: Table: "+colPair.getColumnType()+" - Column: "+colPair.getColumnName());
+                                System.out.flush();
+                            }
+                        }
+
+                        inputTableViews.add(inputTableView);
+
+                        /*---Build OutputTableView of Select---*/
+                        madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
+                        TableView outputTableView;
+
+                        System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
+                        System.out.flush();
+                        String exaremeOutputTdef = exaremeTableDefinition(opQuery.getOutputTable());
+                        System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef);
+                        System.out.flush();
+
+                        exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
+                        if (i == allQueries.size() - 1) {
+                            System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
+                            System.out.flush();
+                            exaremeOutputTable.setTemp(false);
+
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
+                            System.out.flush();
+                            exaremeOutputTable.setTemp(true);
+                        }
+                        if (currentInputLevel == -1) {
+                            System.out.println("translateToExaremeOps: Setting outputTable setLevel= 1");
+                            System.out.flush();
+                            exaremeOutputTable.setLevel(currentInputLevel + 2);
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
+                            System.out.flush();
+                            exaremeOutputTable.setLevel(currentInputLevel + 1);
+                        }
+
+                        System.out.println("translateToExaremeOps: Initialising OutputTableView");
+                        System.out.flush();
+                        outputTableView = new TableView(exaremeOutputTable);
+                        System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
+                        System.out.flush();
+                        outputTableView.setPattern(DataPattern.same);
+
+
+                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 (Partitions exist!)");
+                        System.out.flush();
+                        outputTableView.setNumOfPartitions(1);
+
+                        /*---Finally initialising Select---*/
+                        System.out.println("translateToExaremeOps: Initialising SelectQuery");
+                        System.out.flush();
+                        Select selectQuery = new Select(i, sqlSelect, outputTableView);
+                        System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
+                        System.out.flush();
+                        for (TableView inputV : inputTableViews) {
+                            selectQuery.addInput(inputV);
+                        }
+
+                        System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
+                        System.out.flush();
+
+                        selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
+                        System.out.println("translateToExaremeOps: Setting Query of Select...");
+                        System.out.flush();
+                        selectQuery.setQuery(opQuery.getExaremeQueryString());
+                        System.out.println("translateToExaremeOps: Setting Mappings of Select...");
+                        System.out.flush();
+                        selectQuery.setMappings(null);
+                        System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
+                        System.out.flush();
+                        List<Integer> runOnParts = selectQuery.getRunOnParts();
+                        selectQuery.setDatabaseDir(currentDatabasePath);
+                        System.out.println("translateToExaremeOps: Testing DataBasePath Given: " + currentDatabasePath + " - Set: " + selectQuery.getDatabaseDir());
+                        System.out.flush();
+
+                        System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
+                        System.out.flush();
+
+                        boolean tableIsPreviousOutput = false;
+                        for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                            if(entry.getKey().equals(inputPartition.getBelogingTableName())){
+                                tableIsPreviousOutput = true;
+                                System.out.println("translateToExaremeOps: Input Table: "+inputTable.getTableName()+" is previous Output with PartitionCount: "+entry.getValue() +" this case should not exist! Error!");
+                                System.exit(0);
+                            }
+                        }
+
+                        if(tableIsPreviousOutput == false) {
+                            System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - Input Combo: "+j);
+                            System.out.flush();
+                            AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
+
+                            exaremeSelectOperator.addInput(inputPartition.getBelogingTableName().toLowerCase(), j);
+
+                            exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
+
+                            exaremeOperators.add(exaremeSelectOperator);
+
+                            System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
+                            System.out.flush();
+
+                            exaremeSelectOperator.print();
+
+                            if(j > 0){
+                                System.out.println("translateToExaremeOps: We need to create an extra OpLinks for this Operator...\n\t");
+                                for(OpLink opLink : opLinksList){
+                                    if(opLink.getFromTable().equals("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_0")){
+                                        OpLink brotherLink = new OpLink();
+                                        brotherLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_"+j);
+                                        brotherLink.setToTable(opLink.getToTable());
+                                        brotherLink.setContainerName(opLink.getContainerName());
+                                        brotherLink.setParameters(opLink.getParameters());
+
+                                        opLink.addBrother(brotherLink);
+                                    }
+                                }
+                            }
+
+                        }
+
+                        j++;
+                    }
+
+                    //If output table combines partitions keep record of it for next Operators
+                    boolean exists = false;
+                    for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()) {
+                        if(entry.getKey().equals(opQuery.getOutputTable().getTableName())){
+                            exists = true;
+                            break;
+                        }
+                    }
+
+                    if(exists == false)
+                        outputTablesWithInputParts.put(opQuery.getOutputTable().getTableName(), myPartitions.size());
+
+                }
+                else{ //SINGLE TABLE - NO PARTITIONS
+                    List<TableView> inputTableViews = new LinkedList<>();
+
+                    /*---Build SQLSelect---*/
+                    System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
+                    System.out.flush();
+
+                    SQLSelect sqlSelect = new SQLSelect();
+
+                    sqlSelect = new SQLSelect();
+                    System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                    sqlSelect.setOutputDataPattern(DataPattern.same);
+
+                    System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...(Partitions do not exist)");
+                    System.out.flush();
+                    sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
+
+                    if (i == allQueries.size() - 1) {
+                        System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
+                        System.out.flush();
+                        sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                    } else {
+                        System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
+                        System.out.flush();
+                        sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+                    }
+
+                    System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setPartsDefn(null);
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setSql(opQuery.getExaremeQueryString());
+                    Comments someComments = new Comments();
+                    someComments.addLine("test_comment");
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                    System.out.flush();
+                    sqlSelect.setComments(someComments);
+
+                    /*--------------Build Select----------------*/
+                    MyTable inputTable = opQuery.getInputTables().get(0); //Get Input Table
+
+                    System.out.println("translateToExaremeOps: InputTable: " + inputTable.getTableName() + " does not have any partitions...");
+
                     System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
                     System.out.flush();
                     madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputTable.getTableName().toLowerCase());
                     String exaremeInputTdef = exaremeTableDefinition(inputTable);
+
                     System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef);
                     System.out.flush();
                     exaInputTable.setSqlDefinition(exaremeInputTdef);
@@ -5285,7 +5854,7 @@ public class QueryBuilder {
 
                     inputTableViews.add(inputTableView);
 
-                    /*---Build OutputTableView of Select---*/
+                     /*---Build OutputTableView of Select---*/
                     madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
                     TableView outputTableView;
 
@@ -5322,7 +5891,8 @@ public class QueryBuilder {
                     System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
                     System.out.flush();
                     outputTableView.setPattern(DataPattern.same);
-                    System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 ");
+
+                    System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 (Partitions do not exist!)");
                     System.out.flush();
                     outputTableView.setNumOfPartitions(-1);
 
@@ -5354,21 +5924,25 @@ public class QueryBuilder {
                     System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
                     System.out.flush();
 
-                    System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - ");
+                    System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - (No Input Partitions Case)");
                     System.out.flush();
                     AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
 
-                    System.out.println("translateToExaremeOps: Adding Inputs And Outputs (Partitions) for AdpDBSelectOperator...");
-                    System.out.flush();
-                    if (opQuery.getInputTables().size() > 1) {
-                        System.out.println("translateToExaremeOps: OperatorQuery with more than 1 Input Table! Unsupported!");
-                        System.exit(0);
+                    boolean tableIsPreviousOutput = false;
+                    for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                        if(entry.getKey().equals(opQuery.getInputTables().get(0).getTableName())){
+                            tableIsPreviousOutput = true;
+                            System.out.println("translateToExaremeOps: Input Table: "+opQuery.getInputTables().get(0).getTableName()+" is previous Output with PartitionCount: "+entry.getValue());
+                            for(int k = 0; k < entry.getValue(); k++){
+                                exaremeSelectOperator.addInput(opQuery.getInputTables().get(0).getTableName().toLowerCase(), 0);
+                            }
+                            break;
+                        }
                     }
 
-                    //System.out.println("translateToExaremeOps: Previous Number Of Partitions = \n\t"+numberOfOutputPartsForNext);
-                    //for(int j = 0; j < numberOfOutputPartsForNext; j++)
-                    //    exaremeSelectOperator.addInput(opQuery.getInputTables().get(0).getTableName().toLowerCase(), 0);
-                    exaremeSelectOperator.addInput(opQuery.getInputTables().get(0).getTableName().toLowerCase(), 0);
+                    if(tableIsPreviousOutput == false) {
+                        exaremeSelectOperator.addInput(opQuery.getInputTables().get(0).getTableName().toLowerCase(), 0);
+                    }
 
                     exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
 
@@ -5379,205 +5953,63 @@ public class QueryBuilder {
 
                     exaremeSelectOperator.print();
 
-                    //numberOfOutputPartsForNext = 1;
-
-                }
-                else{
-                    System.out.println("translateToExaremeOps: InputTable has Partitions and each Partition will create a different Exareme Operator!\n\t");
-
-                    List<MyPartition> allPartitions = inputTable.getAllPartitions();
-
-                    int partitionNumber = 0;
-
-                    //numberOfOutputPartsForNext = allPartitions.size();
-
-                    for(MyPartition myPart : allPartitions){
-
-                        System.out.println("translateToExaremeOps: Currently handling Partition: "+myPart.getPartitionName()+"\n\t");
-
-                        System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
-                        System.out.flush();
-                        madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputTable.getTableName().toLowerCase());
-                        String exaremeInputTdef = exaremeTableDefinition(myPart);
-                        System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef);
-                        System.out.flush();
-                        exaInputTable.setSqlDefinition(exaremeInputTdef);
-                        if (currentInputLevel == -1) {
-                            System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
-                            exaInputTable.setTemp(false);
-                        } else {
-                            System.out.println("translateToExaremeOps: Setting Input Table to temp!");
-                            exaInputTable.setTemp(true);
-                        }
-                        System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
-                        System.out.flush();
-                        exaInputTable.setLevel(currentInputLevel);
-
-                        System.out.println("translateToExaremeOps: Initialising InputTableView...");
-                        System.out.flush();
-                        TableView inputTableView = null;
-
-                        if (inputTable.getIsRootInput()) {
-                            System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
-                            inputTableView = new TableView(exaInputTable, myPart.getRootHiveLocationPath(), myPart.getRootHiveTableDefinition(), myPart.getSecondaryNeededQueries());
-                            System.out.println("translateToExaremeOps: RootHiveLocationPath: " + myPart.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + myPart.getRootHiveTableDefinition());
-                        } else {
-                            System.out.println("translateToExaremeOps: Non root partition! Check this! - Part: "+myPart.getPartitionName());
-                            System.exit(0);
-                        }
-
-                        System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
-                        System.out.flush();
-                        inputTableView.setPattern(DataPattern.cartesian_product);
-                        System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
-                        System.out.flush();
-                        inputTableView.setNumOfPartitions(-1);
-
-                        System.out.println("translateToExaremeOps: Adding used Columns...WARNING DOES NOT WORK FOR MORE THAN 1 TABLE!"); //TODO
-                        System.out.flush();
-                        if (opQuery.getInputTables().size() > 1) System.exit(0);
-
-                        MyMap usedColumns = opQuery.getUsedColumns();
-                        List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
-
-                        for (ColumnTypePair colPair : usedColsList) {
-                            if(colPair.getColumnType().equals(myPart.getBelogingTableName()))
-                                inputTableView.addUsedColumn(colPair.getColumnName());
-                        }
-
-                        inputTableViews.add(inputTableView);
-
-                        /*---Build OutputTableView of Select---*/
-                        madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
-                        TableView outputTableView;
-
-                        System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
-                        System.out.flush();
-                        String exaremeOutputTdef = exaremeTableDefinition(opQuery.getOutputTable());
-                        System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef);
-                        System.out.flush();
-
-                        exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
-                        if (i == allQueries.size() - 1) {
-                            System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
-                            System.out.flush();
-                            exaremeOutputTable.setTemp(false);
-
-                        } else {
-                            System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
-                            System.out.flush();
-                            exaremeOutputTable.setTemp(true);
-                        }
-                        if (currentInputLevel == -1) {
-                            System.out.println("translateToExaremeOps: Setting outputTable setLevel= 1");
-                            System.out.flush();
-                            exaremeOutputTable.setLevel(currentInputLevel + 2);
-                        } else {
-                            System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
-                            System.out.flush();
-                            exaremeOutputTable.setLevel(currentInputLevel + 1);
-                        }
-
-                        System.out.println("translateToExaremeOps: Initialising OutputTableView");
-                        System.out.flush();
-                        outputTableView = new TableView(exaremeOutputTable);
-                        System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
-                        System.out.flush();
-                        outputTableView.setPattern(DataPattern.same);
-                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 (due to partitions) ");
-                        System.out.flush();
-                        outputTableView.setNumOfPartitions(1);
-                        sqlSelect.setNumberOfOutputPartitions(1);
-
-                        /*---Finally initialising Select---*/
-                        System.out.println("translateToExaremeOps: Initialising SelectQuery");
-                        System.out.flush();
-                        Select selectQuery = new Select(i, sqlSelect, outputTableView);
-                        System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
-                        System.out.flush();
-                        for (TableView inputV : inputTableViews) {
-                            selectQuery.addInput(inputV);
-                        }
-                        System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
-                        System.out.flush();
-                        selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
-                        System.out.println("translateToExaremeOps: Setting Query of Select...");
-                        System.out.flush();
-                        selectQuery.setQuery(opQuery.getExaremeQueryString());
-                        System.out.println("translateToExaremeOps: Setting Mappings of Select...");
-                        System.out.flush();
-                        selectQuery.setMappings(null);
-                        System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
-                        System.out.flush();
-                        List<Integer> runOnParts = selectQuery.getRunOnParts();
-                        selectQuery.setDatabaseDir(currentDatabasePath);
-                        System.out.println("translateToExaremeOps: Testing DataBasePath Given: " + currentDatabasePath + " - Set: " + selectQuery.getDatabaseDir());
-                        System.out.flush();
-
-                        System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
-                        System.out.flush();
-
-                        System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - ");
-                        System.out.flush();
-                        AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
-
-                        System.out.println("translateToExaremeOps: Adding Inputs And Outputs (Partitions) for AdpDBSelectOperator...");
-                        System.out.flush();
-                        if (opQuery.getInputTables().size() > 1) {
-                            System.out.println("translateToExaremeOps: OperatorQuery with more than 1 Input Table! Unsupported!");
-                            System.exit(0);
-                        }
-                        exaremeSelectOperator.addInput(myPart.getBelogingTableName().toLowerCase(), partitionNumber);
-                        exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
-
-                        exaremeOperators.add(exaremeSelectOperator);
-
-                        System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
-                        System.out.flush();
-
-                        exaremeSelectOperator.print();
-
-                        partitionNumber++;
-                    }
-
                 }
 
             }
             else { //OperatorQuery has multiple Input Tables
                 System.out.println("translateToExaremeOps: More than 1 Input Table for OpQuery!");
-                sqlSelect = new SQLSelect();
-                System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
-                sqlSelect.setOutputDataPattern(DataPattern.same);
-                System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions
-                if (i == allQueries.size() - 1) {
-                    System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
-                    System.out.flush();
-                    sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
-                } else {
-                    System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
-                    System.out.flush();
-                    sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
-                }
-                System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setPartsDefn(null);
-                System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
-                System.out.flush();
-                sqlSelect.setSql(opQuery.getExaremeQueryString());
-                Comments someComments = new Comments();
-                someComments.addLine("test_comment");
-                System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
-                System.out.flush();
-                sqlSelect.setComments(someComments);
 
-                /*--------------Build Select----------------*/
-                for (MyTable inputTable : opQuery.getInputTables()) {
-                    if (inputTable.getHasPartitions() == false) {
-                        System.out.println("translateToExaremeOps: InputTable: " + inputTable.getTableName() + " does not have any partitions...");
+                System.out.println("translateToExaremeOps: Checking if any of the InputTables has Partitions...");
+                System.out.flush();
+                boolean partitionsExist = false;
+                for(MyTable inputTable : opQuery.getInputTables()){
+                    if(inputTable.getHasPartitions() == true){
+                        partitionsExist = true;
+                        break;
+                    }
+                }
+
+                if(partitionsExist == false){
+                    List<TableView> inputTableViews = new LinkedList<>();
+
+                    /*---Build SQLSelect---*/
+                    System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
+                    System.out.flush();
+
+                    SQLSelect sqlSelect = new SQLSelect();
+                    System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                    sqlSelect.setOutputDataPattern(DataPattern.same);
+
+                    System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...(Since partitions do not exist)");
+                    System.out.flush();
+                    sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions in input tables
+
+                    if (i == allQueries.size() - 1) {
+                        System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
+                        System.out.flush();
+                        sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                    } else {
+                        System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
+                        System.out.flush();
+                        sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+                    }
+
+                    System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setPartsDefn(null);
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect.setSql(opQuery.getExaremeQueryString());
+                    Comments someComments = new Comments();
+                    someComments.addLine("test_comment");
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                    System.out.flush();
+                    sqlSelect.setComments(someComments);
+
+                    /*--------------Build Select----------------*/
+                    for (MyTable inputTable : opQuery.getInputTables()) {
                         System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
                         System.out.flush();
                         madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputTable.getTableName().toLowerCase());
@@ -5616,7 +6048,7 @@ public class QueryBuilder {
                         inputTableView.setNumOfPartitions(-1);
 
 
-                        System.out.println("translateToExaremeOps: Adding used Columns..."); //TODO
+                        System.out.println("translateToExaremeOps: Adding used Columns...");
                         System.out.flush();
 
                         MyMap usedColumns = opQuery.getUsedColumns();
@@ -5631,119 +6063,445 @@ public class QueryBuilder {
                         }
 
                         inputTableViews.add(inputTableView);
+
+                    }
+
+                    /*---Build OutputTableView of Select---*/
+                    madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
+                    TableView outputTableView;
+
+                    System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
+                    System.out.flush();
+                    String exaremeOutputTdef = exaremeTableDefinition(opQuery.getOutputTable());
+                    System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef);
+                    System.out.flush();
+
+                    exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
+                    if (i == allQueries.size() - 1) {
+                        System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
+                        System.out.flush();
+                        exaremeOutputTable.setTemp(false);
+
                     } else {
-                        System.out.println("translateToExaremeOps: Partitions are not supported yet!");
+                        System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
+                        System.out.flush();
+                        exaremeOutputTable.setTemp(true);
+                    }
+                    if (currentInputLevel == -1) {
+                        System.out.println("translateToExaremeOps: Setting outputTable setLevel= 1");
+                        System.out.flush();
+                        exaremeOutputTable.setLevel(currentInputLevel + 2);
+                    } else {
+                        System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
+                        System.out.flush();
+                        exaremeOutputTable.setLevel(currentInputLevel + 1);
+                    }
+
+                    System.out.println("translateToExaremeOps: Initialising OutputTableView");
+                    System.out.flush();
+                    outputTableView = new TableView(exaremeOutputTable);
+                    System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
+                    System.out.flush();
+                    outputTableView.setPattern(DataPattern.same);
+
+                    System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 (NO Partitions exist)");
+                    System.out.flush();
+                    outputTableView.setNumOfPartitions(-1);
+
+                    /*---Finally initialising Select---*/
+                    System.out.println("translateToExaremeOps: Initialising SelectQuery");
+                    System.out.flush();
+                    Select selectQuery = new Select(i, sqlSelect, outputTableView);
+                    System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
+                    System.out.flush();
+                    for (TableView inputV : inputTableViews) {
+                        selectQuery.addInput(inputV);
+                    }
+                    System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
+                    System.out.flush();
+                    selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
+                    System.out.println("translateToExaremeOps: Setting Query of Select...");
+                    System.out.flush();
+                    selectQuery.setQuery(opQuery.getExaremeQueryString());
+                    System.out.println("translateToExaremeOps: Setting Mappings of Select...");
+                    System.out.flush();
+                    selectQuery.setMappings(null);
+                    System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
+                    System.out.flush();
+                    List<Integer> runOnParts = selectQuery.getRunOnParts();
+                    selectQuery.setDatabaseDir(currentDatabasePath);
+                    System.out.println("translateToExaremeOps: Testing DataBasePath Given: " + currentDatabasePath + " - Set: " + selectQuery.getDatabaseDir());
+                    System.out.flush();
+
+                    System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
+                    System.out.flush();
+
+                    System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - (No Input Partitions Case)");
+                    System.out.flush();
+                    AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
+
+                    for (MyTable inputT : opQuery.getInputTables()) {
+                        boolean tableIsPreviousOutput = false;
+                        for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                            if(entry.getKey().equals(inputT.getTableName())){
+                                tableIsPreviousOutput = true;
+                                System.out.println("translateToExaremeOps: Input Table: "+inputT.getTableName()+" is previous Output with PartitionCount: "+entry.getValue());
+                                for(int k = 0; k < entry.getValue(); k++){
+                                    exaremeSelectOperator.addInput(inputT.getTableName().toLowerCase(), 0);
+                                }
+                                break;
+                            }
+                        }
+
+                        if(tableIsPreviousOutput == false) {
+                            exaremeSelectOperator.addInput(inputT.getTableName().toLowerCase(), 0);
+                        }
+
+                    }
+
+                    exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
+
+                    exaremeOperators.add(exaremeSelectOperator);
+
+                    System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
+                    System.out.flush();
+
+                    exaremeSelectOperator.print();
+                }
+                else{ //Some Tables may have partitions
+
+                    //Locate all possible combinations of Partitions
+                    int partsToBeCreated = 1;
+                    for(MyTable inputT : opQuery.getInputTables()){
+                        if(inputT.getHasPartitions()){
+                            partsToBeCreated = partsToBeCreated * inputT.getAllPartitions().size();
+                        }
+                    }
+
+                    System.out.println("translateToExaremeOps: Since partitionsExist we must create: "+partsToBeCreated+" AdpDBSelectOperators...");
+
+                    List<List<Integer>> listOfCombinations = createCartesianCombinationsOfInputs(opQuery.getInputTables());
+
+                    if(listOfCombinations.size() != partsToBeCreated){
+                        System.out.println("translateToExaremeOps: listOfCombinations.size() == "+listOfCombinations.size()+" does not equals partToBeCreated number!");
                         System.exit(0);
                     }
+
+                    for(List<Integer> combination : listOfCombinations){ //Get every partition combination
+                        System.out.println("translateToExaremeOps: Current combination: "+combination);
+
+                        List<TableView> inputTableViews = new LinkedList<>();
+
+                        /*---Build SQLSelect---*/
+                        System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
+                        System.out.flush();
+
+                        SQLSelect sqlSelect = new SQLSelect();
+                        System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setInputDataPattern(DataPattern.cartesian_product);
+                        sqlSelect.setOutputDataPattern(DataPattern.same);
+
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...(Since partitions do not exist)");
+                        System.out.flush();
+                        sqlSelect.setNumberOfOutputPartitions(-1); //means no partitions in input tables
+
+                        if (i == allQueries.size() - 1) {
+                            System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE NON TEMP)");
+                            System.out.flush();
+                            sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(TABLE WILL BE TEMP)");
+                            System.out.flush();
+                            sqlSelect.setResultTable(opQuery.getOutputTable().getTableName(), true, false);
+                        }
+
+                        System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setPartsDefn(null);
+                        System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                        System.out.flush();
+                        sqlSelect.setSql(opQuery.getExaremeQueryString());
+                        Comments someComments = new Comments();
+                        someComments.addLine("test_comment");
+                        System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                        System.out.flush();
+                        sqlSelect.setComments(someComments);
+
+                        /*--------------Build Select----------------*/
+                        int j = 0;
+                        for (MyTable inputTable : opQuery.getInputTables()) {
+                            boolean usePartition = false;
+                            MyPartition inputPartition = new MyPartition();
+
+                            if (inputTable.getHasPartitions() == false) {
+                                System.out.println("translateToExaremeOps: InputTable: " + inputTable.getTableName() + " does not have any partitions...");
+                            } else {
+                                System.out.println("translateToExaremeOps: InputTable: " + inputTable.getTableName() + " has Partitions... - CURRENT PARTITION: "+combination.get(j));
+                                usePartition = true;
+                            }
+
+                            if(usePartition == true){
+                                inputPartition = inputTable.getAllPartitions().get(j);
+                            }
+
+                            if(usePartition == true){
+                                System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                                System.out.flush();
+                                madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputPartition.getBelogingTableName().toLowerCase());
+                                String exaremeInputTdef = exaremeTableDefinition(inputPartition);
+                                System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef);
+                                System.out.flush();
+                                exaInputTable.setSqlDefinition(exaremeInputTdef);
+                                if (currentInputLevel == -1) {
+                                    System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
+                                    exaInputTable.setTemp(false);
+                                } else {
+                                    System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                                    exaInputTable.setTemp(true);
+                                }
+                                System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
+                                System.out.flush();
+                                exaInputTable.setLevel(currentInputLevel);
+
+                                System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                                System.out.flush();
+                                TableView inputTableView = null;
+
+                                if (inputTable.getIsRootInput()) {
+                                    System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
+                                    inputTableView = new TableView(exaInputTable, inputPartition.getRootHiveLocationPath(), inputPartition.getRootHiveTableDefinition(), inputPartition.getSecondaryNeededQueries());
+                                    System.out.println("translateToExaremeOps: RootHiveLocationPath: " + inputPartition.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + inputPartition.getRootHiveTableDefinition());
+                                } else {
+                                    inputTableView = new TableView(exaInputTable);
+                                }
+
+                                System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                                System.out.flush();
+                                inputTableView.setPattern(DataPattern.cartesian_product);
+                                System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                                System.out.flush();
+                                inputTableView.setNumOfPartitions(-1);
+
+                                System.out.println("translateToExaremeOps: Adding used Columns...");
+                                System.out.flush();
+
+                                MyMap usedColumns = opQuery.getUsedColumns();
+                                List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
+
+                                for (ColumnTypePair colPair : usedColsList) {
+                                    if(colPair.getColumnType().equals(inputTable.getTableName())) {
+                                        inputTableView.addUsedColumn(colPair.getColumnName());
+                                        System.out.println("translateToExaremeOps: Table: "+colPair.getColumnType()+" - Column: "+colPair.getColumnName());
+                                        System.out.flush();
+                                    }
+                                }
+
+                                inputTableViews.add(inputTableView);
+                            }
+                            else{
+                                System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                                System.out.flush();
+                                madgik.exareme.common.schema.Table exaInputTable = new madgik.exareme.common.schema.Table(inputTable.getTableName().toLowerCase());
+                                String exaremeInputTdef = exaremeTableDefinition(inputTable);
+                                System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef);
+                                System.out.flush();
+                                exaInputTable.setSqlDefinition(exaremeInputTdef);
+                                if (currentInputLevel == -1) {
+                                    System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
+                                    exaInputTable.setTemp(false);
+                                } else {
+                                    System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                                    exaInputTable.setTemp(true);
+                                }
+                                System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
+                                System.out.flush();
+                                exaInputTable.setLevel(currentInputLevel);
+
+                                System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                                System.out.flush();
+                                TableView inputTableView = null;
+
+                                if (inputTable.getIsRootInput()) {
+                                    System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
+                                    inputTableView = new TableView(exaInputTable, inputTable.getRootHiveLocationPath(), inputTable.getRootHiveTableDefinition(), null);
+                                    System.out.println("translateToExaremeOps: RootHiveLocationPath: " + inputTable.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + inputTable.getRootHiveTableDefinition());
+                                } else {
+                                    inputTableView = new TableView(exaInputTable);
+                                }
+
+                                System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                                System.out.flush();
+                                inputTableView.setPattern(DataPattern.cartesian_product);
+                                System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                                System.out.flush();
+                                inputTableView.setNumOfPartitions(-1);
+
+                                System.out.println("translateToExaremeOps: Adding used Columns...");
+                                System.out.flush();
+
+                                MyMap usedColumns = opQuery.getUsedColumns();
+                                List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
+
+                                for (ColumnTypePair colPair : usedColsList) {
+                                    if(colPair.getColumnType().equals(inputTable.getTableName())) {
+                                        inputTableView.addUsedColumn(colPair.getColumnName());
+                                        System.out.println("translateToExaremeOps: Table: "+colPair.getColumnType()+" - Column: "+colPair.getColumnName());
+                                        System.out.flush();
+                                    }
+                                }
+
+                                inputTableViews.add(inputTableView);
+                            }
+
+                            /*---Build OutputTableView of Select---*/
+                            madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
+                            TableView outputTableView;
+
+                            System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
+                            System.out.flush();
+                            String exaremeOutputTdef = exaremeTableDefinition(opQuery.getOutputTable());
+                            System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef);
+                            System.out.flush();
+
+                            exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
+                            if (i == allQueries.size() - 1) {
+                                System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
+                                System.out.flush();
+                                exaremeOutputTable.setTemp(false);
+
+                            } else {
+                                System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
+                                System.out.flush();
+                                exaremeOutputTable.setTemp(true);
+                            }
+                            if (currentInputLevel == -1) {
+                                System.out.println("translateToExaremeOps: Setting outputTable setLevel= 1");
+                                System.out.flush();
+                                exaremeOutputTable.setLevel(currentInputLevel + 2);
+                            } else {
+                                System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
+                                System.out.flush();
+                                exaremeOutputTable.setLevel(currentInputLevel + 1);
+                            }
+
+                            System.out.println("translateToExaremeOps: Initialising OutputTableView");
+                            System.out.flush();
+                            outputTableView = new TableView(exaremeOutputTable);
+                            System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
+                            System.out.flush();
+                            outputTableView.setPattern(DataPattern.same);
+
+                            System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 (Partitions exist)");
+                            System.out.flush();
+                            outputTableView.setNumOfPartitions(1);
+
+                            /*---Finally initialising Select---*/
+                            System.out.println("translateToExaremeOps: Initialising SelectQuery");
+                            System.out.flush();
+                            Select selectQuery = new Select(i, sqlSelect, outputTableView);
+                            System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
+                            System.out.flush();
+                            for (TableView inputV : inputTableViews) {
+                                selectQuery.addInput(inputV);
+                            }
+                            System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
+                            System.out.flush();
+                            selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
+                            System.out.println("translateToExaremeOps: Setting Query of Select...");
+                            System.out.flush();
+                            selectQuery.setQuery(opQuery.getExaremeQueryString());
+                            System.out.println("translateToExaremeOps: Setting Mappings of Select...");
+                            System.out.flush();
+                            selectQuery.setMappings(null);
+                            System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
+                            System.out.flush();
+                            List<Integer> runOnParts = selectQuery.getRunOnParts();
+                            selectQuery.setDatabaseDir(currentDatabasePath);
+                            System.out.println("translateToExaremeOps: Testing DataBasePath Given: " + currentDatabasePath + " - Set: " + selectQuery.getDatabaseDir());
+                            System.out.flush();
+
+                            System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
+                            System.out.flush();
+
+                            System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - (No Input Partitions Case)");
+                            System.out.flush();
+                            AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
+
+                            int l = 0;
+                            for (MyTable inputT : opQuery.getInputTables()) {
+                                boolean tableIsPreviousOutput = false;
+                                for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                                    if(entry.getKey().equals(inputT.getTableName())){
+                                        tableIsPreviousOutput = true;
+                                        System.out.println("translateToExaremeOps: Input Table: "+inputT.getTableName()+" is previous Output with PartitionCount: "+entry.getValue());
+                                        for(int k = 0; k < entry.getValue(); k++){
+                                            exaremeSelectOperator.addInput(inputT.getTableName().toLowerCase(), 0);
+                                        }
+                                        break;
+                                    }
+                                }
+
+                                if(tableIsPreviousOutput == false) {
+                                    exaremeSelectOperator.addInput(inputT.getTableName().toLowerCase(), combination.get(l));
+                                }
+
+                                l++;
+                            }
+
+                            exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
+
+                            exaremeOperators.add(exaremeSelectOperator);
+
+                            System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
+                            System.out.flush();
+
+                            exaremeSelectOperator.print();
+
+                            //Create extra OpLinks
+                            if(partitionsExist){
+                                if(combination.get(j) > 0){
+                                    System.out.println("translateToExaremeOps: We need to create an extra OpLinks for this Operator...\n\t");
+                                    for(OpLink opLink : opLinksList){
+                                        if(opLink.getFromTable().equals("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_0")){
+                                            OpLink brotherLink = new OpLink();
+                                            brotherLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_"+combination.get(j));
+                                            brotherLink.setToTable(opLink.getToTable());
+                                            brotherLink.setContainerName(opLink.getContainerName());
+                                            brotherLink.setParameters(opLink.getParameters());
+
+                                            opLink.addBrother(brotherLink);
+                                        }
+                                    }
+                                }
+                            }
+
+                            j++;
+                        }
+
+                    }
+
+                    //If output table combines partitions keep record of it for next Operators
+                    boolean exists = false;
+                    for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()) {
+                        if(entry.getKey().equals(opQuery.getOutputTable().getTableName())){
+                            exists = true;
+                            break;
+                        }
+                    }
+
+                    if(exists == false)
+                        outputTablesWithInputParts.put(opQuery.getOutputTable().getTableName(), partsToBeCreated);
+
                 }
-
-                //Now Check if InputTable has Partitions and treat Partition Case accordingly
-
-
-                /*---Build OutputTableView of Select---*/
-                madgik.exareme.common.schema.Table exaremeOutputTable = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
-                TableView outputTableView;
-
-                System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
-                System.out.flush();
-                String exaremeOutputTdef = exaremeTableDefinition(opQuery.getOutputTable());
-                System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef);
-                System.out.flush();
-
-                exaremeOutputTable.setSqlDefinition(exaremeOutputTdef);
-                if (i == allQueries.size() - 1) {
-                    System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
-                    System.out.flush();
-                    exaremeOutputTable.setTemp(false);
-
-                } else {
-                    System.out.println("translateToExaremeOps: Setting outputTable setTemp=TRUE");
-                    System.out.flush();
-                    exaremeOutputTable.setTemp(true);
-                }
-                if (currentInputLevel == -1) {
-                    System.out.println("translateToExaremeOps: Setting outputTable setLevel= 1");
-                    System.out.flush();
-                    exaremeOutputTable.setLevel(currentInputLevel + 2);
-                } else {
-                    System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
-                    System.out.flush();
-                    exaremeOutputTable.setLevel(currentInputLevel + 1);
-                }
-
-                System.out.println("translateToExaremeOps: Initialising OutputTableView");
-                System.out.flush();
-                outputTableView = new TableView(exaremeOutputTable);
-                System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
-                System.out.flush();
-                outputTableView.setPattern(DataPattern.same);
-                System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 ");
-                System.out.flush();
-                outputTableView.setNumOfPartitions(-1);
-
-                /*---Finally initialising Select---*/
-                System.out.println("translateToExaremeOps: Initialising SelectQuery");
-                System.out.flush();
-                Select selectQuery = new Select(i, sqlSelect, outputTableView);
-                System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
-                System.out.flush();
-                for (TableView inputV : inputTableViews) {
-                    selectQuery.addInput(inputV);
-                }
-                System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
-                System.out.flush();
-                selectQuery.addQueryStatement(opQuery.getExaremeQueryString());
-                System.out.println("translateToExaremeOps: Setting Query of Select...");
-                System.out.flush();
-                selectQuery.setQuery(opQuery.getExaremeQueryString());
-                System.out.println("translateToExaremeOps: Setting Mappings of Select...");
-                System.out.flush();
-                selectQuery.setMappings(null);
-                System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
-                System.out.flush();
-                List<Integer> runOnParts = selectQuery.getRunOnParts();
-                selectQuery.setDatabaseDir(currentDatabasePath);
-                System.out.println("translateToExaremeOps: Testing DataBasePath Given: " + currentDatabasePath + " - Set: " + selectQuery.getDatabaseDir());
-                System.out.flush();
-
-                System.out.println("translateToExaremeOps: Printing created SELECT for Debugging...\n\t" + selectQuery.toString());
-                System.out.flush();
-
-                System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator - ");
-                System.out.flush();
-                AdpDBSelectOperator exaremeSelectOperator = new AdpDBSelectOperator(AdpDBOperatorType.runQuery, selectQuery, 0);
-
-                System.out.println("translateToExaremeOps: Adding Inputs And Outputs (Partitions) for AdpDBSelectOperator...");
-                System.out.flush();
-
-                //System.out.println("translateToExaremeOps: Previous Number Of Partitions = \n\t" + numberOfOutputPartsForNext);
-                //for (int j = 0; j < numberOfOutputPartsForNext; j++)
-                //
-                // exaremeSelectOperator.addInput(opQuery.getInputTables().get(0).getTableName().toLowerCase(), 0);
-
-                for(MyTable inputT : opQuery.getInputTables()){
-                    exaremeSelectOperator.addInput(inputT.getTableName().toLowerCase(), 0);
-                }
-
-                exaremeSelectOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
-
-                exaremeOperators.add(exaremeSelectOperator);
-
-                System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
-                System.out.flush();
-
-                exaremeSelectOperator.print();
-
-               // numberOfOutputPartsForNext = 1;
 
             }
 
-            if(i == allQueries.size() - 1){
-                System.out.println("translateToExaremeOps: Now creating an extra TableUnionReplicator Operator...\n\t");
-                System.out.flush();
+            if(i == allQueries.size() - 1){ //TODO
 
                 SQLSelect sqlSelect2 = new SQLSelect();
-                if(opQuery.getInputTables().size() == 1){
+                if(opQuery.getInputTables().size() == 1){ //TableUnionReplicator with only 1 Input Table
+
                     /*---Build SQLSelect---*/
                     System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
                     System.out.flush();
@@ -5752,9 +6510,23 @@ public class QueryBuilder {
                     System.out.flush();
                     sqlSelect2.setInputDataPattern(DataPattern.cartesian_product);
                     sqlSelect2.setOutputDataPattern(DataPattern.same);
-                    System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...");
-                    System.out.flush();
-                    sqlSelect2.setNumberOfOutputPartitions(-1); //means no partitions
+
+                    boolean partitionsExist = false;
+                    if(opQuery.getInputTables().get(0).getHasPartitions() == true){
+                        partitionsExist = true;
+                    }
+
+                    if(partitionsExist == true){
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=1 for SQLSelect...(Partitions exist)");
+                        System.out.flush();
+                        sqlSelect2.setNumberOfOutputPartitions(1); //means partitions exist
+                    }
+                    else{
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...(Partitions do not exist)");
+                        System.out.flush();
+                        sqlSelect2.setNumberOfOutputPartitions(-1); //means no partitions
+                    }
+
                     System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(NON TEMP TABLE)");
                     System.out.flush();
                     sqlSelect2.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
@@ -5770,14 +6542,14 @@ public class QueryBuilder {
                     System.out.flush();
                     sqlSelect2.setComments(someComments2);
 
-                /*--------------Build Select----------------*/
+                    /*--------------Build Select----------------*/
 
-                /*---Build InputTableViews of Select---*/
+                    /*---Build InputTableViews of Select---*/
                     List<TableView> inputTableViews2 = new LinkedList<>();
                     MyTable inputTable2 = opQuery.getInputTables().get(0);
 
                     //Now Check if InputTable has Partitions and treat Partition Case accordingly
-                    if(inputTable2.getHasPartitions() == false) {
+                    if(inputTable2.getHasPartitions() == false) { //TableUnionReplicator for Single Table with no Partitions
 
                         System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
                         System.out.flush();
@@ -5798,14 +6570,14 @@ public class QueryBuilder {
                         System.out.flush();
                         TableView inputTableView2;
 
-                        if(inputTable2.getIsRootInput()){
-                            System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
-                            inputTableView2 = new TableView(exaInputTable2, inputTable2.getRootHiveLocationPath(), inputTable2.getRootHiveTableDefinition(), null);
-                            System.out.println("translateToExaremeOps: RootHiveLocationPath: "+inputTable2.getRootHiveLocationPath()+" - RootHiveTableDefinition: "+inputTable2.getRootHiveTableDefinition());
-                        }
-                        else{
-                            inputTableView2 = new TableView(exaInputTable2);
-                        }
+                        //if(inputTable2.getIsRootInput()){
+                            //System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
+                            //inputTableView2 = new TableView(exaInputTable2, inputTable2.getRootHiveLocationPath(), inputTable2.getRootHiveTableDefinition(), null);
+                            //System.out.println("translateToExaremeOps: RootHiveLocationPath: "+inputTable2.getRootHiveLocationPath()+" - RootHiveTableDefinition: "+inputTable2.getRootHiveTableDefinition());
+                        //}
+                        //else{
+                        inputTableView2 = new TableView(exaInputTable2);
+                        //}
 
                         System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
                         System.out.flush();
@@ -5830,7 +6602,7 @@ public class QueryBuilder {
 
                         inputTableViews2.add(inputTableView2);
 
-                /*---Build OutputTableView of Select---*/
+                        /*---Build OutputTableView of Select---*/
                         madgik.exareme.common.schema.Table exaremeOutputTable2 = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
                         TableView outputTableView2;
 
@@ -5855,11 +6627,11 @@ public class QueryBuilder {
                         System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
                         System.out.flush();
                         outputTableView2.setPattern(DataPattern.same);
-                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 ");
+                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 ");
                         System.out.flush();
                         outputTableView2.setNumOfPartitions(1);
 
-                /*---Finally initialising Select---*/
+                        /*---Finally initialising Select---*/
                         System.out.println("translateToExaremeOps: Initialising SelectQuery");
                         System.out.flush();
 
@@ -5888,10 +6660,6 @@ public class QueryBuilder {
                         System.out.flush();
                         AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
 
-                        if (opQuery.getInputTables().size() > 1) {
-                            System.out.println("translateToExaremeOps: OperatorQuery with more than 1 Input Table! Unsupported!");
-                            System.exit(0);
-                        }
                         exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName().toLowerCase(), 0);
                         exaremeUnionOperator.addOutput(opQuery.getOutputTable().getTableName().toLowerCase(), 0);
 
@@ -5918,40 +6686,45 @@ public class QueryBuilder {
                         opLinksList.add(opLink);
 
                     }
-                    else{
-                        System.out.println("translateToExaremeOps: InputTable has Partitions and each Partition will create a different Exareme Operator!\n\t");
+                    else{ //TableUnionReplicator - 1 Table - Many Partitions
+                        System.out.println("translateToExaremeOps: InputTable has Partitions !\n\t");
 
-                        List<MyPartition> allPartitions = inputTable2.getAllPartitions();
+                        List<MyPartition> myPartitions = inputTable2.getAllPartitions();
 
-                        int partitionNumber = allPartitions.size();
+                        System.out.println("translateToExaremeOps: We have: "+myPartitions.size()+" input partitions!");
 
                         System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
                         System.out.flush();
-                        madgik.exareme.common.schema.Table exaInputTable2 = new madgik.exareme.common.schema.Table(inputTable2.getTableName().toLowerCase());
-                        String exaremeInputTdef2 = exaremeTableDefinition(allPartitions.get(0));
+
+                        madgik.exareme.common.schema.Table exaInputTable2 = new madgik.exareme.common.schema.Table(myPartitions.get(0).getBelogingTableName().toLowerCase());
+                        String exaremeInputTdef2 = exaremeTableDefinition(myPartitions.get(0));
+
                         System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef2);
                         System.out.flush();
+
                         exaInputTable2.setSqlDefinition(exaremeInputTdef2);
-
-                        System.out.println("translateToExaremeOps: Setting Input Table to temp!");
-                        exaInputTable2.setTemp(true);
-
+                        if (currentInputLevel == -1) {
+                            System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
+                            exaInputTable2.setTemp(false);
+                        } else {
+                            System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                            exaInputTable2.setTemp(true);
+                        }
                         System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
                         System.out.flush();
                         exaInputTable2.setLevel(currentInputLevel);
 
                         System.out.println("translateToExaremeOps: Initialising InputTableView...");
                         System.out.flush();
-                        TableView inputTableView2;
+                        TableView inputTableView2 = null;
 
-                        if(allPartitions.get(0).getIsRootInput()){
-                            System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
-                            inputTableView2 = new TableView(exaInputTable2, allPartitions.get(0).getRootHiveLocationPath(), allPartitions.get(0).getRootHiveTableDefinition(), allPartitions.get(0).getSecondaryNeededQueries());
-                            System.out.println("translateToExaremeOps: RootHiveLocationPath: "+allPartitions.get(0).getRootHiveLocationPath()+" - RootHiveTableDefinition: "+allPartitions.get(0).getRootHiveTableDefinition());
-                        }
-                        else{
-                            inputTableView2 = new TableView(exaInputTable2);
-                        }
+                        //if (inputTable2.getIsRootInput()) {
+                        //    System.out.println("translateToExaremeOps: This Hive Partition is a Root Input and we need more details...");
+                        //    inputTableView2 = new TableView(exaInputTable2, inputPartition.getRootHiveLocationPath(), inputPartition.getRootHiveTableDefinition(), inputPartition.getSecondaryNeededQueries());
+                        //    System.out.println("translateToExaremeOps: RootHiveLocationPath: " + inputPartition.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + inputPartition.getRootHiveTableDefinition());
+                        //} else {
+                        inputTableView2 = new TableView(exaInputTable2);
+                        //}
 
                         System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
                         System.out.flush();
@@ -5960,21 +6733,23 @@ public class QueryBuilder {
                         System.out.flush();
                         inputTableView2.setNumOfPartitions(-1);
 
-                        System.out.println("translateToExaremeOps: Adding used Columns...WARNING DOES NOT WORK FOR MORE THAN 1 TABLE!"); //TODO
+                        System.out.println("translateToExaremeOps: Adding used Columns...");
                         System.out.flush();
-                        if (opQuery.getInputTables().size() > 1) System.exit(0);
 
                         MyMap usedColumns = opQuery.getUsedColumns();
                         List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
 
                         for (ColumnTypePair colPair : usedColsList) {
-                            if(colPair.getColumnType().equals(allPartitions.get(0).getBelogingTableName()))
+                            if (colPair.getColumnType().equals(inputTable2.getTableName())) {
                                 inputTableView2.addUsedColumn(colPair.getColumnName());
+                                System.out.println("translateToExaremeOps: Table: " + colPair.getColumnType() + " - Column: " + colPair.getColumnName());
+                                System.out.flush();
+                            }
                         }
 
                         inputTableViews2.add(inputTableView2);
 
-                    /*---Build OutputTableView of Select---*/
+                        /*---Build OutputTableView of Select---*/
                         madgik.exareme.common.schema.Table exaremeOutputTable2 = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
                         TableView outputTableView2;
 
@@ -5999,12 +6774,11 @@ public class QueryBuilder {
                         System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
                         System.out.flush();
                         outputTableView2.setPattern(DataPattern.same);
-                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=-1 ");
+                        System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 ");
                         System.out.flush();
                         outputTableView2.setNumOfPartitions(1);
-                        sqlSelect2.setNumberOfOutputPartitions(1);
 
-                    /*---Finally initialising Select---*/
+                        /*---Finally initialising Select---*/
                         System.out.println("translateToExaremeOps: Initialising SelectQuery");
                         System.out.flush();
 
@@ -6029,33 +6803,318 @@ public class QueryBuilder {
                         System.out.flush();
                         unionSelect.setDatabaseDir(currentDatabasePath);
 
-                        System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator(TableUnion)");
-                        System.out.flush();
-                        AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
+                        boolean tableIsPreviousOutput = false;
+                        for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                            if(entry.getKey().equals(inputTable2.getTableName())){
+                                tableIsPreviousOutput = true;
+                                System.out.println("translateToExaremeOps: Input Table: "+inputTable2.getTableName()+" is previous Output with PartitionCount: "+entry.getValue() +" this case should not exist! Error!");
+                                System.exit(0);
+                                /*System.out.flush();
+                                System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator(TableUnion)");
+                                System.out.flush();
+                                AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
 
-                        if (opQuery.getInputTables().size() > 1) {
-                            System.out.println("translateToExaremeOps: OperatorQuery with more than 1 Input Table! Unsupported!");
-                            System.exit(0);
+                                for(int k = 0; k < entry.getValue(); k++){
+                                    exaremeUnionOperator.addInput(inputTable2.getTableName().toLowerCase(), 0);
+                                }
+
+                                exaremeUnionOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
+
+                                exaremeOperators.add(exaremeUnionOperator);
+
+                                System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
+                                System.out.flush();
+
+                                exaremeUnionOperator.print();
+
+                                break;*/
+                            }
                         }
 
-                        for(int j=0; j < partitionNumber; j++)
-                            exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName().toLowerCase(), 0);
-
-                        exaremeUnionOperator.addOutput(opQuery.getOutputTable().getTableName().toLowerCase(), 0);
-
-                        exaremeOperators.add(exaremeUnionOperator);
-
-                        System.out.println("translateToExaremeOps: Printing TableUnionReplication for Debugging...\n\t");
-                        System.out.flush();
-                        exaremeUnionOperator.print();
-
-                    /*---Create an Extra OpLink---*/
-                        for(int j=0; j < partitionNumber; j++) {
-                            System.out.println("translateToExaremeOps: Create an Extra OpLink...For Every Input Partition\n\t");
+                        if(tableIsPreviousOutput == false) {
+                            System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator(TableUnion)");
                             System.out.flush();
+                            AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
+
+                            for(MyPartition inputPartition : inputTable2.getAllPartitions()) { //The Sum Number of Partitions participating in creating the part 0 of TableUnionReplicator
+                                exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName(), 0);
+                            }
+
+                            exaremeUnionOperator.addOutput(opQuery.getOutputTable().getTableName(), 0);
+
+                            exaremeOperators.add(exaremeUnionOperator);
+
+                            System.out.println("translateToExaremeOps: Printing exaremeSelectOperator...\n\t");
+                            System.out.flush();
+
+                            exaremeUnionOperator.print();
+
+                            /*---Create an Extra OpLink---*/
+                            for(int l=0; l < inputTable2.getAllPartitions().size(); l++) {
+                                System.out.println("translateToExaremeOps: Create an Extra OpLink...For Every Input Partition\n\t");
+                                System.out.flush();
+                                OpLink opLink = new OpLink();
+                                opLink.setContainerName("c0");
+                                opLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_"+l);
+                                opLink.setToTable("TR_" + opQuery.getOutputTable().getTableName() + "_P_0");
+                                StringParameter sP = new StringParameter("table", opQuery.getOutputTable().getTableName());
+                                NumParameter nP = new NumParameter("part", 0);
+                                List<Parameter> params = new LinkedList<>();
+                                params.add(sP);
+                                params.add(nP);
+                                opLink.setParameters(params);
+
+                                opLinksList.add(opLink);
+                            }
+
+                        }
+
+                    }
+                }
+                else{ //Multiple Tables
+                    /*---Build SQLSelect---*/
+                    System.out.println("translateToExaremeOps: \tOperatorQuery: [" + opQuery.getExaremeQueryString() + " ]");
+                    System.out.flush();
+                    sqlSelect2 = new SQLSelect();
+                    System.out.println("translateToExaremeOps: Setting InputDataPattern=CARTESIAN_PRODUCT for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect2.setInputDataPattern(DataPattern.cartesian_product);
+                    sqlSelect2.setOutputDataPattern(DataPattern.same);
+
+                    boolean partitionsExist = false;
+                    if(opQuery.getInputTables().get(0).getHasPartitions() == true){
+                        partitionsExist = true;
+                    }
+
+                    if(partitionsExist == true){
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=1 for SQLSelect...(Partitions exist)");
+                        System.out.flush();
+                        sqlSelect2.setNumberOfOutputPartitions(1); //means partitions exist
+                    }
+                    else{
+                        System.out.println("translateToExaremeOps: Setting NumberOfOutputParts=-1 for SQLSelect...(Partitions do not exist)");
+                        System.out.flush();
+                        sqlSelect2.setNumberOfOutputPartitions(-1); //means no partitions
+                    }
+
+                    System.out.println("translateToExaremeOps: Setting ResultTableName for SQLSelect...(NON TEMP TABLE)");
+                    System.out.flush();
+                    sqlSelect2.setResultTable(opQuery.getOutputTable().getTableName(), false, false);
+                    System.out.println("translateToExaremeOps: Setting PartsDefn=null for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect2.setPartsDefn(null);
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for SQLSelect...");
+                    System.out.flush();
+                    sqlSelect2.setSql(opQuery.getExaremeQueryString());
+                    Comments someComments2 = new Comments();
+                    someComments2.addLine("test_comment");
+                    System.out.println("translateToExaremeOps: Setting sqlQuery for Comments...");
+                    System.out.flush();
+                    sqlSelect2.setComments(someComments2);
+
+                    /*--------------Build Select----------------*/
+
+                    /*---Build InputTableViews of Select---*/
+                    List<TableView> inputTableViews2 = new LinkedList<>();
+                    for(MyTable inputTable2 : opQuery.getInputTables()){
+                        if(inputTable2.getHasPartitions() == false){
+                            System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                            System.out.flush();
+                            madgik.exareme.common.schema.Table exaInputTable2 = new madgik.exareme.common.schema.Table(inputTable2.getTableName().toLowerCase());
+                            String exaremeInputTdef2 = exaremeTableDefinition(inputTable2);
+                            System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef2);
+                            System.out.flush();
+                            exaInputTable2.setSqlDefinition(exaremeInputTdef2);
+
+                            System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                            exaInputTable2.setTemp(true);
+
+                            System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
+                            System.out.flush();
+                            exaInputTable2.setLevel(currentInputLevel);
+
+                            System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                            System.out.flush();
+                            TableView inputTableView2;
+
+                            //if(inputTable2.getIsRootInput()){
+                            //System.out.println("translateToExaremeOps: This Hive Table is a Root Input and we need more details...");
+                            //inputTableView2 = new TableView(exaInputTable2, inputTable2.getRootHiveLocationPath(), inputTable2.getRootHiveTableDefinition(), null);
+                            //System.out.println("translateToExaremeOps: RootHiveLocationPath: "+inputTable2.getRootHiveLocationPath()+" - RootHiveTableDefinition: "+inputTable2.getRootHiveTableDefinition());
+                            //}
+                            //else{
+                            inputTableView2 = new TableView(exaInputTable2);
+                            //}
+
+                            System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                            System.out.flush();
+                            inputTableView2.setPattern(DataPattern.cartesian_product);
+                            System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                            System.out.flush();
+                            inputTableView2.setNumOfPartitions(-1);
+
+                            System.out.println("translateToExaremeOps: Adding used Columns..."); //TODO
+                            System.out.flush();
+
+                            MyMap usedColumns = opQuery.getUsedColumns();
+                            List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
+
+                            for (ColumnTypePair colPair : usedColsList) {
+                                if(colPair.getColumnType().equals(inputTable2.getTableName())) {
+                                    inputTableView2.addUsedColumn(colPair.getColumnName());
+                                    System.out.println("translateToExaremeOps: Table: "+colPair.getColumnType()+" - Column: "+colPair.getColumnName());
+                                    System.out.flush();
+                                }
+                            }
+
+                            inputTableViews2.add(inputTableView2);
+                        }
+                        else{
+                            System.out.println("translateToExaremeOps: InputTable has Partitions !\n\t");
+
+                            List<MyPartition> myPartitions = inputTable2.getAllPartitions();
+
+                            System.out.println("translateToExaremeOps: We have: "+myPartitions.size()+" input partitions!");
+
+                            System.out.println("translateToExaremeOps: Constructing Exareme Input Table Definition...");
+                            System.out.flush();
+
+                            madgik.exareme.common.schema.Table exaInputTable2 = new madgik.exareme.common.schema.Table(myPartitions.get(0).getBelogingTableName().toLowerCase());
+                            String exaremeInputTdef2 = exaremeTableDefinition(myPartitions.get(0));
+
+                            System.out.println("translateToExaremeOps: SQL def: " + exaremeInputTdef2);
+                            System.out.flush();
+
+                            exaInputTable2.setSqlDefinition(exaremeInputTdef2);
+                            if (currentInputLevel == -1) {
+                                System.out.println("translateToExaremeOps: Setting Input Table to NON TEMP!");
+                                exaInputTable2.setTemp(false);
+                            } else {
+                                System.out.println("translateToExaremeOps: Setting Input Table to temp!");
+                                exaInputTable2.setTemp(true);
+                            }
+                            System.out.println("translateToExaremeOps: Setting Input Table Level= " + currentInputLevel);
+                            System.out.flush();
+                            exaInputTable2.setLevel(currentInputLevel);
+
+                            System.out.println("translateToExaremeOps: Initialising InputTableView...");
+                            System.out.flush();
+                            TableView inputTableView2 = null;
+
+                            //if (inputTable2.getIsRootInput()) {
+                            //    System.out.println("translateToExaremeOps: This Hive Partition is a Root Input and we need more details...");
+                            //    inputTableView2 = new TableView(exaInputTable2, inputPartition.getRootHiveLocationPath(), inputPartition.getRootHiveTableDefinition(), inputPartition.getSecondaryNeededQueries());
+                            //    System.out.println("translateToExaremeOps: RootHiveLocationPath: " + inputPartition.getRootHiveLocationPath() + " - RootHiveTableDefinition: " + inputPartition.getRootHiveTableDefinition());
+                            //} else {
+                            inputTableView2 = new TableView(exaInputTable2);
+                            //}
+
+                            System.out.println("translateToExaremeOps: Setting inputTableView DataPattern=CARTESIAN_PRODUCT...");
+                            System.out.flush();
+                            inputTableView2.setPattern(DataPattern.cartesian_product);
+                            System.out.println("translateToExaremeOps: Setting inputTableView setNumOfPartitions=-1");
+                            System.out.flush();
+                            inputTableView2.setNumOfPartitions(-1);
+
+                            System.out.println("translateToExaremeOps: Adding used Columns...");
+                            System.out.flush();
+
+                            MyMap usedColumns = opQuery.getUsedColumns();
+                            List<ColumnTypePair> usedColsList = usedColumns.getColumnAndTypeList();
+
+                            for (ColumnTypePair colPair : usedColsList) {
+                                if (colPair.getColumnType().equals(inputTable2.getTableName())) {
+                                    inputTableView2.addUsedColumn(colPair.getColumnName());
+                                    System.out.println("translateToExaremeOps: Table: " + colPair.getColumnType() + " - Column: " + colPair.getColumnName());
+                                    System.out.flush();
+                                }
+                            }
+
+                            inputTableViews2.add(inputTableView2);
+                        }
+                    }
+
+                    /*---Build OutputTableView of Select---*/
+                    madgik.exareme.common.schema.Table exaremeOutputTable2 = new madgik.exareme.common.schema.Table(opQuery.getOutputTable().getTableName());
+                    TableView outputTableView2;
+
+                    System.out.println("translateToExaremeOps: Constructing Exareme Output Table Definition...");
+                    System.out.flush();
+                    String exaremeOutputTdef2 = exaremeTableDefinition(opQuery.getOutputTable());
+                    System.out.println("translateToExaremeOps: SQL def: " + exaremeOutputTdef2);
+                    System.out.flush();
+
+                    exaremeOutputTable2.setSqlDefinition(exaremeOutputTdef2);
+                    System.out.println("translateToExaremeOps: Setting outputTable setTemp=FALSE (final Table) ");
+                    System.out.flush();
+                    exaremeOutputTable2.setTemp(false);
+
+                    System.out.println("translateToExaremeOps: Setting outputTable setLevel= " + (currentInputLevel + 1));
+                    System.out.flush();
+                    exaremeOutputTable2.setLevel(currentInputLevel + 1);
+
+                    System.out.println("translateToExaremeOps: Initialising OutputTableView");
+                    System.out.flush();
+                    outputTableView2 = new TableView(exaremeOutputTable2);
+                    System.out.println("translateToExaremeOps: Setting outputTableView DataPattern=SAME ");
+                    System.out.flush();
+                    outputTableView2.setPattern(DataPattern.same);
+                    System.out.println("translateToExaremeOps: Setting outputTableView setNumOfPartitions=1 ");
+                    System.out.flush();
+                    outputTableView2.setNumOfPartitions(1);
+
+                        /*---Finally initialising Select---*/
+                    System.out.println("translateToExaremeOps: Initialising SelectQuery");
+                    System.out.flush();
+
+                    Select unionSelect = new Select(i + 1, sqlSelect2, outputTableView2);
+
+                    System.out.println("translateToExaremeOps: Adding InputTableViews to Select...");
+                    System.out.flush();
+                    for (TableView inputV : inputTableViews2) {
+                        unionSelect.addInput(inputV);
+                    }
+                    System.out.println("translateToExaremeOps: Adding QueryStatement to Select...");
+                    System.out.flush();
+                    unionSelect.addQueryStatement(opQuery.getExaremeQueryString());
+                    System.out.println("translateToExaremeOps: Setting Query of Select...");
+                    System.out.flush();
+                    unionSelect.setQuery("select * from " + opQuery.getOutputTable().getTableName().toLowerCase());
+                    System.out.println("translateToExaremeOps: Setting Mappings of Select...");
+                    System.out.flush();
+                    List<Integer> runOnParts2 = unionSelect.getRunOnParts();
+                    unionSelect.setMappings(null);
+                    System.out.println("translateToExaremeOps: Setting DatabaseDir of Select...");
+                    System.out.flush();
+                    unionSelect.setDatabaseDir(currentDatabasePath);
+
+                    System.out.println("translateToExaremeOps: Initialising AdpDBSelectOperator(TableUnion)");
+                    System.out.flush();
+                    AdpDBSelectOperator exaremeUnionOperator = new AdpDBSelectOperator(AdpDBOperatorType.tableUnionReplicator, unionSelect, 0);
+
+                    int l = 0;
+                    for (MyTable inputT : opQuery.getInputTables()) {
+                        //boolean tableIsPreviousOutput = false;
+                        //for(Map.Entry<String, Integer> entry : outputTablesWithInputParts.entrySet()){
+                        //    if(entry.getKey().equals(inputT.getTableName())){
+                        //        tableIsPreviousOutput = true;
+                        //        System.out.println("translateToExaremeOps: Input Table: "+inputT.getTableName()+" is previous Output with PartitionCount: "+entry.getValue());
+                        //        for(int k = 0; k < entry.getValue(); k++){
+                        //            exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName(), 0);
+                        //        }
+                        //        break;
+                        //    }
+                        //}
+
+                        if(inputT.getHasPartitions() == false) {
+                            exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName(), 0);
+                            System.out.println("translateToExaremeOps: Create an Extra OpLink...For This Input Table\n\t");
+                            System.out.flush();
+
+                            /*---Create an Extra OpLink---*/
                             OpLink opLink = new OpLink();
                             opLink.setContainerName("c0");
-                            opLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_P_"+j);
+                            opLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_"+l);
                             opLink.setToTable("TR_" + opQuery.getOutputTable().getTableName() + "_P_0");
                             StringParameter sP = new StringParameter("table", opQuery.getOutputTable().getTableName());
                             NumParameter nP = new NumParameter("part", 0);
@@ -6065,15 +7124,36 @@ public class QueryBuilder {
                             opLink.setParameters(params);
 
                             opLinksList.add(opLink);
+
+                            l++;
+                        }
+                        else {
+                            for(MyPartition myPart : inputT.getAllPartitions()){
+                                exaremeUnionOperator.addInput(opQuery.getOutputTable().getTableName(), 0);
+
+                                /*---Create an Extra OpLink---*/
+                                System.out.println("translateToExaremeOps: Create an Extra OpLink...For Every Input Partition\n\t");
+                                System.out.flush();
+                                OpLink opLink = new OpLink();
+                                opLink.setContainerName("c0");
+                                opLink.setFromTable("R_"+opQuery.getOutputTable().getTableName().toLowerCase()+"_"+l);
+                                opLink.setToTable("TR_" + opQuery.getOutputTable().getTableName() + "_P_0");
+                                StringParameter sP = new StringParameter("table", opQuery.getOutputTable().getTableName());
+                                NumParameter nP = new NumParameter("part", 0);
+                                List<Parameter> params = new LinkedList<>();
+                                params.add(sP);
+                                params.add(nP);
+                                opLink.setParameters(params);
+
+                                opLinksList.add(opLink);
+
+                                l++;
+                            }
+
                         }
 
                     }
-                }
-                else{
-                    if (opQuery.getInputTables().size() > 1) {
-                        System.out.println("translateToExaremeOps: More than 1 Input Table for OpQuery! Not supported yet!");
-                        System.exit(0);
-                    }
+
                 }
 
             }

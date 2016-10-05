@@ -6,6 +6,11 @@ import java.util.List;
 /**
  * Created by panos on 1/7/2016.
  */
+
+/* This class takes care of properly printing an Exareme Plan
+*  as a json file for Exareme to Use.
+*/
+
 public class ExaremePlan {
     List<Container> containers;
     List<ExaremeOperator> operators;
@@ -96,6 +101,7 @@ public class ExaremePlan {
             outputFile.println("\t\"containers\": [\n");
             outputFile.flush();
 
+            int cN = 0;
             for(Container c : containers){
                 outputFile.println("\t\t{\n");
                 outputFile.flush();
@@ -109,8 +115,13 @@ public class ExaremePlan {
                     outputFile.println("\t\t\t\"data_transfer_port\": "+c.getData_transfer_port()+"\n");
                     outputFile.flush();
 
-                outputFile.println("\t\t}\n");
+                if(cN == containers.size() - 1)
+                    outputFile.println("\t\t}\n");
+                else
+                    outputFile.println("\t\t},\n");
                 outputFile.flush();
+
+                cN++;
             }
 
             outputFile.println("\t],\n");
@@ -184,10 +195,12 @@ public class ExaremePlan {
             outputFile.println("\t\"op_links\": [\n");
             outputFile.flush();
 
+
             int k = 0;
             for(OpLink o : opLinks){
-                outputFile.println("\t\t{\n");
-                outputFile.flush();
+                if(k == opLinks.size() - 1){ //Last OpLink
+                    outputFile.println("\t\t{\n");
+                    outputFile.flush();
 
                     outputFile.println("\t\t\t\"container\": \""+o.getContainerName()+"\",\n");
                     outputFile.flush();
@@ -231,12 +244,177 @@ public class ExaremePlan {
                     outputFile.println("\t\t\t]\n");
                     outputFile.flush();
 
+                    int l = 0;
+                    if(o.getBrothers().size() > 0){
+                        outputFile.println("\t\t},\n");
+                        for(OpLink brotherLink : o.getBrothers()){
+                            outputFile.println("\t\t{\n");
+                            outputFile.flush();
 
-                if(k == opLinks.size() - 1)
-                    outputFile.println("\t\t}\n");
-                else
+                            outputFile.println("\t\t\t\"container\": \""+brotherLink.getContainerName()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\"from\": \""+brotherLink.getFromTable()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\"to\": \""+brotherLink.getToTable()+"\",\n");
+                            outputFile.flush();
+
+                            outputFile.println("\t\t\t\"parameters\": [\n");
+                            outputFile.flush();
+
+                            //Print parameters
+                            j = 0;
+                            for(Parameter p : brotherLink.getParameters()){
+                                outputFile.println("\t\t\t\t[\n");
+                                outputFile.flush();
+
+                                if(p instanceof NumParameter){
+                                    NumParameter nP = (NumParameter) p;
+                                    outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t"+nP.getValue()+"\n");
+                                    outputFile.flush();
+                                }
+                                else{
+                                    StringParameter sP = (StringParameter) p;
+                                    outputFile.println("\t\t\t\t\t\""+sP.getParemeterType()+"\",\n");
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\""+sP.getValue()+"\"\n");
+                                    outputFile.flush();
+                                }
+
+                                if(j == brotherLink.getParameters().size() - 1)
+                                    outputFile.println("\t\t\t\t]\n");
+                                else
+                                    outputFile.println("\t\t\t\t],\n");
+                                outputFile.flush();
+                                j++;
+                            }
+
+                            outputFile.println("\t\t\t]\n");
+                            outputFile.flush();
+
+                            if(l == o.getBrothers().size() - 1){
+                                outputFile.println("\t\t}\n");
+                                outputFile.flush();
+                            }
+                            else{
+                                outputFile.println("\t\t},\n");
+                                outputFile.flush();
+                            }
+
+                            l++;
+
+                        }
+
+                    }
+                    else{
+                        outputFile.println("\t\t}\n");
+                        outputFile.flush();
+                    }
+                }
+                else{ //Not the last OpLink
+                    outputFile.println("\t\t{\n");
+                    outputFile.flush();
+
+                    outputFile.println("\t\t\t\"container\": \""+o.getContainerName()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"from\": \""+o.getFromTable()+"\",\n");
+                    outputFile.flush();
+                    outputFile.println("\t\t\t\"to\": \""+o.getToTable()+"\",\n");
+                    outputFile.flush();
+
+                    outputFile.println("\t\t\t\"parameters\": [\n");
+                    outputFile.flush();
+
+                    //Print parameters
+                    int j = 0;
+                    for(Parameter p : o.getParameters()){
+                        outputFile.println("\t\t\t\t[\n");
+                        outputFile.flush();
+
+                        if(p instanceof NumParameter){
+                            NumParameter nP = (NumParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t"+nP.getValue()+"\n");
+                            outputFile.flush();
+                        }
+                        else{
+                            StringParameter sP = (StringParameter) p;
+                            outputFile.println("\t\t\t\t\t\""+sP.getParemeterType()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\t\t\""+sP.getValue()+"\"\n");
+                            outputFile.flush();
+                        }
+
+                        if(j == o.getParameters().size() - 1)
+                            outputFile.println("\t\t\t\t]\n");
+                        else
+                            outputFile.println("\t\t\t\t],\n");
+                        outputFile.flush();
+                        j++;
+                    }
+
+                    outputFile.println("\t\t\t]\n");
+                    outputFile.flush();
+
                     outputFile.println("\t\t},\n");
-                outputFile.flush();
+
+                    if(o.getBrothers().size() > 0){
+                        for(OpLink brotherLink : o.getBrothers()){
+                            outputFile.println("\t\t{\n");
+                            outputFile.flush();
+
+                            outputFile.println("\t\t\t\"container\": \""+brotherLink.getContainerName()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\"from\": \""+brotherLink.getFromTable()+"\",\n");
+                            outputFile.flush();
+                            outputFile.println("\t\t\t\"to\": \""+brotherLink.getToTable()+"\",\n");
+                            outputFile.flush();
+
+                            outputFile.println("\t\t\t\"parameters\": [\n");
+                            outputFile.flush();
+
+                            //Print parameters
+                            j = 0;
+                            for(Parameter p : brotherLink.getParameters()){
+                                outputFile.println("\t\t\t\t[\n");
+                                outputFile.flush();
+
+                                if(p instanceof NumParameter){
+                                    NumParameter nP = (NumParameter) p;
+                                    outputFile.println("\t\t\t\t\t\""+nP.getParemeterType()+"\",\n");
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t"+nP.getValue()+"\n");
+                                    outputFile.flush();
+                                }
+                                else{
+                                    StringParameter sP = (StringParameter) p;
+                                    outputFile.println("\t\t\t\t\t\""+sP.getParemeterType()+"\",\n");
+                                    outputFile.flush();
+                                    outputFile.println("\t\t\t\t\t\""+sP.getValue()+"\"\n");
+                                    outputFile.flush();
+                                }
+
+                                if(j == brotherLink.getParameters().size() - 1)
+                                    outputFile.println("\t\t\t\t]\n");
+                                else
+                                    outputFile.println("\t\t\t\t],\n");
+                                outputFile.flush();
+                                j++;
+                            }
+
+                            outputFile.println("\t\t\t]\n");
+                            outputFile.flush();
+
+                            outputFile.println("\t\t},\n");
+                            outputFile.flush();
+                        }
+
+                    }
+
+                }
+
                 k++;
             }
 

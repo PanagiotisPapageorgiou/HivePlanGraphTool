@@ -12,6 +12,26 @@ import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 
+/* This class provides an easy way to test our program
+*  similarly to JUNIT:
+*
+*  - the setUp method will run a script
+*  that will do any setup operations required before
+*  submitting queries to Hive for Exareme translation
+*  such as setting up tables/partitions etc. All setup
+*  operations are to placed in a setup.sql script
+*
+*  -the runQueryScript method allows us when the "EXAREME"
+*  flag is set to handle each HiveQL statement seperately
+*  and choose if we want to convert its execution plan
+*  into an Exareme Plan. If the "EXAREME" flag has been not
+*  set then any HiveQL command will be run automatically.
+*  Similarly to above, all HiveQL queries are to placed in a script.
+*
+*  -the tearDown method as its name says simply runs any DROP
+*  command to destroy an table before the cluster stops.
+*/
+
 public class testCaseTool {
     private HiveTestSuite testSuite;
     private String setUpScriptPath;
@@ -30,9 +50,9 @@ public class testCaseTool {
         this.resultsLogFile = null;
     }
 
-    public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode) throws Exception {
+    public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeMiniClusterIP) throws Exception {
         this.testSuite = new HiveTestSuite(numberOfDatanodes, numberOfTaskTrackers);
-        this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode);
+        this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP);
         List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
     }
 
