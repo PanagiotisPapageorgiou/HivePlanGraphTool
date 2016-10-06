@@ -9,6 +9,17 @@ import java.util.List;
 /**
  * Created by panos on 17/8/2016.
  */
+
+/* This class helps translate a set of MapReduce Operators (contained in the ExaremeGraph)
+   to an Exareme Plan Operator (such as the AdpDBSelectOperator). Similarly to an actual
+   Exareme Operator it keeps track of InputTables and OutputTable. It also contains the query
+   that runs on the specific input tables in order to produce the output table and the used
+   columns.
+
+   Instance of this class are created and filled by the QueryBuilder class.
+
+*/
+
 public class OperatorQuery {
     String dataBasePath;
     String localQueryString;

@@ -13,6 +13,11 @@ import madgik.exareme.utils.encoding.Base64Util;
 /**
  * Created by panos on 1/7/2016.
  */
+
+/* Used to print an Operator
+   of the Exareme Plan
+ */
+
 public class ExaremeOperator {
     String containerName;
     String operatorName;

@@ -21,10 +21,15 @@ import java.util.*;
 /**
  * Created by panos on 5/5/2016.
  */
-//OperatorNode carries the Operator Object from a Stage of the QueryPlan
-//Each Operator object has access to its children and its parents in the same stage
-//As of now, children and parents in other stages are not yet included
-//Their connections can be seen in the Edges of the ExaremeGraph only
+
+/*
+   An OperatorNode is a Node of the Exareme Graph. It contains a Map Reduce
+   Operator extracted from the Hive Plan (such as TableScanOperator, FilterOperator
+   GroupByOperator etc.). Since every Operator is found in a Stage of the plan we
+   also keep track of the stage (ownerStage) that the Operator was originally found
+   to help us connect leaf Operators from one stage to the root operators of the next
+   stage.
+*/
 
 public class OperatorNode {
 

@@ -22,6 +22,22 @@ import java.util.*;
 /**
  * Created by panos on 21/4/2016.
  */
+
+/*
+   An Exareme Graph is the total Graph that can be formed
+   by extract each operator graph of a stage in a Hive Plan
+   and then combine all of them.
+
+   Each root of the graph corresponds generally to an Operator
+   that reads an Input Entity (file or table) and the leaf
+   of the Graph (final Operator) corresponds to the Output Table
+   or file of the plan.
+
+   NOTE: An Exareme Graph however is not ready to be used by Exareme
+   and needs to be translated into an Exareme Plan.
+
+ */
+
 public class ExaremeGraph {
 
     private List<OperatorNode> roots;

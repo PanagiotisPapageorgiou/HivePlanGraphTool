@@ -15,7 +15,7 @@ public class OpGraphProducerMain {
         String exaremePlanFile = "src/main/resources/files/exaremePlan.json";
         String exaremeMiniClusterIP = "192.168.1.3";
 
-        int numberOfNodes = 4; //Number of Nodes in Cluster (numberOfDataNodes==NumberOfNodeManagers)
+        int numberOfNodes = 1; //Number of Nodes in Cluster (numberOfDataNodes==NumberOfNodeManagers)
         int maxDynamicPartitions = 1000; //Total NumberOfPartitions in Cluster
         int maxDynamicPartitionsPerNode = 100; //Total NumberOfPartitions in Node
         boolean dynamicPartitionsEnabled = true; //Toggle dynamic partitioning

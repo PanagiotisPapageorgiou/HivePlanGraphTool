@@ -229,12 +229,28 @@ public class HiveTestCluster {
         return null;
     }
 
-    /*----------------------HIVE OPERATOR GRAPH CONSTRUCTION------------------------------------------*/
+    /*----------------------EXAREME OPERATOR GRAPH CONSTRUCTION---------------------------------------*/
     /*---                                                                                     --------*/
     /*----A Hive Query Plan Consists of MapReduce Stages and each stage contains an Operator Graph----*/
     /*----The goal of the below methods is to explore the stages of the plan and construct---*/
-    /*---the total Operator Graph for this Plan. This graph will be used later to construct---*/
-    /*---the Exareme Execution Plan                                                       ----*/
+    /*---the total Operator Graph (ExaremeGraph) for this Plan. This graph will be used later---*/
+    /*--- to construct the Exareme Execution Plan                                          ----*/
+    /*                                                                                       */
+    /* Exploration Strategy:                                                                */
+    /*                                                                                      */
+    /* We first extract the set of connected Stages from the Hive Plan. (Stage Graph)       */
+    /* Since a Hive Plan contains Conditional Stages (Stages that are used to determine at  */
+    /* runtime the best order some next Stages run) we must first simplify the Stage Graph */
+    /* We ommit the Conditional Stages altogether and only keep one order of Stages since */
+    /* our execution engine will not be Hadoop but Exareme                                 */
+    /*                                                                                      */
+    /* Then, we dive into each Stage of the Hive Plan and extract the Operator Graph of the stage */
+    /* In order to form the full Operator Graph (Exareme Graph) we must then link the leaves */
+    /* operators of Stage to the root operators of the following stage respecting the flow */
+    /* of data from one operator to another.                                                */
+    /*                                                                                      */
+    /* After doing so we finally have our ExaremeGraph and we can convert it into an ExaremePlan */
+
 
     public void diveFromOperatorRoot(org.apache.hadoop.hive.ql.exec.Operator rootOperator, List<org.apache.hadoop.hive.ql.exec.Operator> discoveredOperators){
 

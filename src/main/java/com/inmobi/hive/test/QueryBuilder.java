@@ -27,6 +27,53 @@ import java.util.*;
 //TODO CHECK NOT ONLY KEY BUT VALUE ALSO IF ENTRIES ARE EQUAL
 //TODO INCORPORATE ALTERNATE ALIASES FOR JOIN RETURN PROBLEM
 
+/* This class undertakes the task of taking an Exareme Graph
+   and turning it into a set of OperatorQueries (basically Exareme Operators)
+   and OpLinks. After its work is done all that is left is to actually
+   create an AdpDBSelectOperator object for every OperatorQuery object
+   and then print the ExaremePlan.
+
+   CURRENT CONVERSION STRATEGY: We explore the ExaremeGraph DFS style.
+   One loop begins for every Root of the Exareme Graph. Once we finish
+   extracting the required information from an OperatorNode of the Graph
+   we recursively move to its child and so on. This recursive process
+   stops when we reach a leaf or a node that a second parent (such as a
+   JoinOperator)
+
+   As we explore from one operator to another we fill OperatorQuery objects
+   which contains the InputTables, OutputTable, used columns and the Query
+   Exareme will run on the Input Tables to form an OutputTable.
+
+   Multiple Hive M/R Operators can be used to form a single OperatorQuery (aka Exareme Operator)
+
+   FOR EXAMPLE:
+   TableScanOperator--->FilterOperator--->GroupByOperator---->SelectOperator---->LimitOperator
+
+   The above set of Operator Nodes in the ExaremeGraph will translate to a single Exareme Operator
+   with the following query contained:
+
+   select [columns] from [table] where [filters] group by [group keys] limit [#number];
+
+   When we fully explore the ExaremeGraph and create all OperatorQuery objects and OpLinks
+   we need we must invoke the translateToExaremeOps method in order to convert
+   every OperatorQuery into an AdpDBSelectOperator for Exareme.
+
+   HOW MULTIPLE TABLES WITH PARTITIONS ARE DEALT WITH:
+   Exareme provides various ways to combine the input partitions of two or more tables and form
+   a new table. Due to time constraints, the strategy we currently follow in order to combine
+   input Partitions is the Cartesian Product to 1 strategy. That means that all partitions
+   of different Hive Tables are combined in the way of Cartesian Product and then the results
+   are combined into an OutputTable table with only 1 Partition.
+   
+   NOTE:
+   This is the way currently a set of Hive Operators translates to an Exareme Operator.
+   Note that due to the MapReduce Logic of the OperatorNodes some Exareme Operators might contain Queries
+   that are essentially the same Query as the Exareme Operator before them. As of now, no steps
+   have been taken to optimise this behaviour and remove queries that can be ommited due to the
+   above behaviour.
+
+*/
+
 public class QueryBuilder {
 
     ExaremeGraph exaremeGraph; //A Hive Operator Graph ready to be translated

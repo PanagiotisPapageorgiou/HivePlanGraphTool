@@ -7,6 +7,12 @@ import java.util.Map;
 /**
  * Created by panos on 3/8/2016.
  */
+
+/* This is a custom class that is used primarily for keeping track of the
+   different tables used in the Exareme Graph and to help in translating
+   the Exareme Graph into an Exareme Plan
+ */
+
 public class MyMap {
     List<ColumnTypePair> columnAndTypeList;
 

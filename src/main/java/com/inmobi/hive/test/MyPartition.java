@@ -12,6 +12,15 @@ import java.util.List;
 /**
  * Created by panos on 21/8/2016.
  */
+
+/* Used to model a Hive Partition. Partitions and Tables are handled
+   the same by Exareme while the same is not true for Hive. This class
+   helps fix this difference by adding the extra columns a Hive Partition
+   is missing (because they are the partition keys) and also creates
+   a set of Queries that Exareme will run in order to properly handle
+   the Hive Partition
+*/
+
 public class MyPartition {
     String belongingDatabase = null;
     String belongingTable = null;

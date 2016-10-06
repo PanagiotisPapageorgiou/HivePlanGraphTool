@@ -5,6 +5,11 @@ import java.io.PrintWriter;
 /**
  * Created by panos on 1/7/2016.
  */
+
+/* Class used to print a Container
+   of an Exareme Plan
+ */
+
 public class Container {
 
     String name;
