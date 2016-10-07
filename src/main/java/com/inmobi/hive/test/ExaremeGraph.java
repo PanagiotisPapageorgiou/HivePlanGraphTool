@@ -625,37 +625,46 @@ public class ExaremeGraph {
                                 if (leaf.getSchema() != null) {
                                     if (opNode.getOperator().getSchema() != null) {
                                         if(opNode.getOperator().getSchema().toString().contains("col")) {
-                                            if(opLeaf.getOwnerStage().getId().equals(opNode.getOwnerStage().getId())) {
-                                                System.out.println("Leaf: " + leaf.getOperatorId() + " and Root: " + opNode.getOperator().getOperatorId() +" belong to the same stage! Not checking for edge!");
-                                            }
-                                            else{
-                                                if (leaf.getSchema().toString().equals(opNode.getOperator().getSchema().toString())) {
-                                                    DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), opNode.getOperator().getOperatorId(), "LEAF TO ROOT");
-                                                    addDirectedEdge(e);
-                                                    System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + opNode.getOperator().getOperatorId());
-                                                    List<Operator<? extends OperatorDesc>> rootParents;
-                                                    if (opNode.getOperator().getParentOperators() != null) {
-                                                        rootParents = opNode.getOperator().getParentOperators();
-                                                    } else {
-                                                        rootParents = new LinkedList<>();
+
+                                            if ((opNode.getOperator().getParentOperators() == null) || (opNode.getOperator().getParentOperators().size() == 0)){ //This condition might seem like double checking but it ensures 1-1 FS to TS connections
+                                                if((leaf.getChildOperators() == null) || (leaf.getChildOperators().size() == 0)) {
+                                                    if(opLeaf.getOwnerStage().getId().equals(opNode.getOwnerStage().getId())) {
+                                                        System.out.println("Leaf: " + leaf.getOperatorId() + " and Root: " + opNode.getOperator().getOperatorId() +" belong to the same stage! Not checking for edge!");
                                                     }
-                                                    rootParents.add(leaf);
-                                                    opNode.getOperator().setParentOperators(rootParents);
-                                                    if ((leaf.getChildOperators() == null) || ((leaf.getChildOperators() != null) && (leaf.getChildOperators().size() == 0))) {
-                                                        List<Operator<? extends OperatorDesc>> leafChildren = new LinkedList<>();
-                                                        leafChildren.add(opNode.getOperator());
-                                                        leaf.setChildOperators(leafChildren);
-                                                    } else {
-                                                        List<Operator<? extends OperatorDesc>> leafChildren = leaf.getChildOperators();
-                                                        if (!leafChildren.contains(opNode.getOperator())) {
-                                                            leafChildren.add(opNode.getOperator());
-                                                            leaf.setChildOperators(leafChildren);
-                                                            System.out.println("WARNING: This leaf has now more than one child check if this is correct! Children: " + leafChildren.toString());
-                                                            System.exit(1);
+                                                    else{
+                                                        if (leaf.getSchema().toString().equals(opNode.getOperator().getSchema().toString())) {
+                                                            DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), opNode.getOperator().getOperatorId(), "LEAF TO ROOT");
+                                                            addDirectedEdge(e);
+                                                            System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + opNode.getOperator().getOperatorId());
+                                                            List<Operator<? extends OperatorDesc>> rootParents;
+                                                            if (opNode.getOperator().getParentOperators() != null) {
+                                                                rootParents = opNode.getOperator().getParentOperators();
+                                                            } else {
+                                                                rootParents = new LinkedList<>();
+                                                            }
+                                                            rootParents.add(leaf);
+                                                            opNode.getOperator().setParentOperators(rootParents);
+                                                            if ((leaf.getChildOperators() == null) || ((leaf.getChildOperators() != null) && (leaf.getChildOperators().size() == 0))) {
+                                                                List<Operator<? extends OperatorDesc>> leafChildren = new LinkedList<>();
+                                                                leafChildren.add(opNode.getOperator());
+                                                                leaf.setChildOperators(leafChildren);
+                                                            } else {
+                                                                List<Operator<? extends OperatorDesc>> leafChildren = leaf.getChildOperators();
+                                                                if (!leafChildren.contains(opNode.getOperator())) {
+                                                                    leafChildren.add(opNode.getOperator());
+                                                                    leaf.setChildOperators(leafChildren);
+                                                                    System.out.println("WARNING: This leaf has now more than one child check if this is correct! Children: " + leafChildren.toString());
+                                                                    System.exit(1);
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
+
+
+
+
                                         }
                                     }
                                 }

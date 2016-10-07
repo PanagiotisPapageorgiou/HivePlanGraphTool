@@ -95,10 +95,34 @@ public class MyPartition {
                 exaremeType = "TEXT";
             }
             else if(colType.contains("decimal")){
-                exaremeType = "NUM";
+                exaremeType = "DECIMAL(10,5)";
             }
             else if(colType.contains("char")){
                 exaremeType = "TEXT";
+            }
+            else if(colType.contains("float")){
+                exaremeType = "FLOAT";
+            }
+            else if(colType.contains("varchar")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("date")){
+                exaremeType = "DATE";
+            }
+            else if(colType.contains("double")){
+                exaremeType = "REAL";
+            }
+            else if(colType.contains("double precision")){
+                exaremeType = "REAL";
+            }
+            else if(colType.contains("bigint")){
+                exaremeType = "BIGINT";
+            }
+            else if(colType.contains("smallint")){
+                exaremeType = "SMALLINT";
+            }
+            else if(colType.contains("tinyint")){
+                exaremeType = "TINYINT";
             }
             else{
                 System.out.println("createRootHiveTableDefinition: Unknown Hive Type: "+colType);

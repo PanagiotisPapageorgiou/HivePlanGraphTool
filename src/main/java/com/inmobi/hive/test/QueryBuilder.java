@@ -54,6 +54,8 @@ import java.util.*;
 
    select [columns] from [table] where [filters] group by [group keys] limit [#number];
 
+   This is the way currently a set of Hive Operators translates to an Exareme Operator.
+
    When we fully explore the ExaremeGraph and create all OperatorQuery objects and OpLinks
    we need we must invoke the translateToExaremeOps method in order to convert
    every OperatorQuery into an AdpDBSelectOperator for Exareme.
@@ -64,10 +66,9 @@ import java.util.*;
    input Partitions is the Cartesian Product to 1 strategy. That means that all partitions
    of different Hive Tables are combined in the way of Cartesian Product and then the results
    are combined into an OutputTable table with only 1 Partition.
-   
+
    NOTE:
-   This is the way currently a set of Hive Operators translates to an Exareme Operator.
-   Note that due to the MapReduce Logic of the OperatorNodes some Exareme Operators might contain Queries
+   Due to the MapReduce Logic of the OperatorNodes some Exareme Operators might contain Queries
    that are essentially the same Query as the Exareme Operator before them. As of now, no steps
    have been taken to optimise this behaviour and remove queries that can be ommited due to the
    above behaviour.
@@ -752,13 +753,8 @@ public class QueryBuilder {
 
                     /*----Begin an Operator Query----*/
                     OperatorQuery opQuery = new OperatorQuery();
-                    opQuery.setDataBasePath(currentDatabasePath);
-                    opQuery.setLocalQueryString("");
-                    opQuery.setExaremeQueryString("");
-                    opQuery.addInputTable(inputTables.get(0));
-                    opQuery.setAssignedContainer("c0");
-                    opQuery.setLocalQueryString(" from " + inputTables.get(0).getTableName().toLowerCase());
-                    opQuery.setExaremeQueryString(" from " + inputTables.get(0).getTableName().toLowerCase());
+                    initialiseNewQuery(null, opQuery, inputTables.get(0));
+
 
                 /*---Extract Columns from TableScan---*/
                     System.out.println(rootNode.getOperator().getOperatorId() + ": Beginning Query Construction from root...");
@@ -955,13 +951,7 @@ public class QueryBuilder {
                     }
                         /*----Begin an Operator Query----*/
                         OperatorQuery opQuery = new OperatorQuery();
-                        opQuery.setDataBasePath(currentDatabasePath);
-                        opQuery.setLocalQueryString("");
-                        opQuery.setExaremeQueryString("");
-                        opQuery.addInputTable(wantedTable);
-                        opQuery.setAssignedContainer("c0");
-                        opQuery.setLocalQueryString(" from " + wantedTable.getTableName().toLowerCase());
-                        opQuery.setExaremeQueryString(" from " + wantedTable.getTableName().toLowerCase());
+                        initialiseNewQuery(null, opQuery, wantedTable);
 
                         /*---Extract Columns from TableScan---*/
                         System.out.println(root.getOperator().getOperatorId() + ": Beginning Query Construction from root...");
@@ -1132,33 +1122,10 @@ public class QueryBuilder {
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is a JoinOperator: "+fatherOperatorNode.getOperatorName());
 
                 if(fatherOperatorNode.getOperator() instanceof TableScanOperator) {
-                /*----Extracting predicate of FilterOp----*/
+                    /*----Extracting predicate of FilterOp----*/
                     if ((fatherOperatorNode.getOperator().getParentOperators() == null) || (fatherOperatorNode.getOperator().getParentOperators().size() == 0)) {
-                        FilterOperator filtOp = (FilterOperator) currentOperatorNode.getOperator();
-                        FilterDesc filterDesc = filtOp.getConf();
-
-                        /*---Locate new USED columns---*/
-                        List<String> predCols = filterDesc.getPredicate().getCols();
-                        if (predCols != null) {
-                            for (String p : predCols) {
-                                currentOpQuery.addUsedColumn(p, latestAncestorTableName1);
-                            }
-                        }
-
-                        ExprNodeDesc predicate = filterDesc.getPredicate();
-                        if (predicate != null) {
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Extracting columns of predicate...");
-                            List<String> filterColumns = predicate.getCols();
-
-                            String predicateString = predicate.getExprString();
-
-                            currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" where " + predicateString + " "));
-                            currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" where " + predicateString + " "));
-
-                        } else {
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Predicate is NULL");
-                            System.exit(0);
-                        }
+                        /*---Add where statement to Query---*/
+                        addWhereStatementToQuery(currentOperatorNode, currentOpQuery, latestAncestorTableName1);
                     } else {
                         System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Father TableScanOperator is not ROOT! Unsupported yet!");
                         System.exit(0);
@@ -1169,68 +1136,8 @@ public class QueryBuilder {
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is a JoinOperator! Use ancestral schema to add Columns and transform current Schema!");
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Ancestral Schema: "+latestAncestorSchema);
 
-                    MyMap ancestorMap = new MyMap();
-                    latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, ancestorMap, latestAncestorSchema, false);
-
-                    MyMap descendentMap = new MyMap();
-                    String descendentSchema = extractColsFromTypeName(currentOperatorNode.getOperator().getSchema().toString(), descendentMap, currentOperatorNode.getOperator().getSchema().toString(), true);
-
-                    if(ancestorMap.getColumnAndTypeList().size() != descendentMap.getColumnAndTypeList().size()){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Maps do not have equal size!");
-                        System.exit(0);
-                    }
-
-                    FilterOperator filtOp = (FilterOperator) currentOperatorNode.getOperator();
-                    FilterDesc filterDesc = filtOp.getConf();
-
-                    List<String> usedCols = new LinkedList<>();
-                    List<String> predCols = filterDesc.getPredicate().getCols();
-                    ExprNodeDesc predicate = filterDesc.getPredicate();
-                    String predicateString = predicate.getExprString();
-
-                    for(int i = 0; i < ancestorMap.getColumnAndTypeList().size(); i++){
-                        ColumnTypePair ancestorPair = ancestorMap.getColumnAndTypeList().get(i);
-                        ColumnTypePair descendentPair = descendentMap.getColumnAndTypeList().get(i);
-
-                        if(ancestorPair.getColumnType().equals(descendentPair.getColumnType())){
-                            for(ColumnTypePair p : columnAndTypeMap.getColumnAndTypeList()){
-                                if(p.getColumnName().equals(ancestorPair.getColumnName())){
-                                    p.addAltAlias(currentOperatorNode.getOperatorName(), descendentPair.getColumnName());
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match found! - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
-                                    if(predCols != null){
-                                        if(predCols.size() > 0){
-                                            for(String c : predCols){
-                                                if(c.equals(descendentPair.getColumnName())){
-                                                    if(predicateString != null){
-                                                        if(predicateString.contains(c)){
-                                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": This column also exists in the predicate! Replacing!");
-                                                            predicateString = predicateString.replace(c, ancestorPair.getColumnName());
-                                                        }
-                                                    }
-
-                                                    //Add used column
-                                                    currentOpQuery.addUsedColumn(ancestorPair.getColumnName(), latestAncestorTableName1);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Possible match Pair does not have same Type - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
-                            System.exit(0);
-                        }
-                    }
-
-                    if (predicateString != null) {
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" where " + predicateString + " "));
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" where " + predicateString + " "));
-
-                    } else {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Predicate is NULL");
-                        System.exit(0);
-                    }
+                    /*---Add where statement to Query---*/
+                    addWhereStatementToQuery2(currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1);
 
                 }
 
@@ -1243,30 +1150,7 @@ public class QueryBuilder {
                             System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered FIL--->SEL Connection! Child is select: " + child.getOperatorId());
                             if (fatherOperatorNode.getOperator() instanceof JoinOperator) {
                                 if (currentOpQuery.getLocalQueryString().contains("select ") == false) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Constructing SELECT statement columns...");
-                                    MyMap aMap = new MyMap();
-                                    latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                                    String selectString = "";
-                                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                                    for (int i = 0; i < pairs.size(); i++) {
-                                        if (i == pairs.size() - 1) {
-                                            selectString = selectString + " " + pairs.get(i).getColumnName() + " ";
-                                        } else {
-                                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                                        }
-                                    }
-
-                                    /*---Locate new USED columns---*/
-                                    for (ColumnTypePair pair : aMap.getColumnAndTypeList()) {
-                                        currentOpQuery.addUsedColumn(pair.getColumnName(), latestAncestorTableName1);
-                                    }
-
-                                    currentOpQuery.setLocalQueryString("select" + selectString + currentOpQuery.getLocalQueryString());
-                                    currentOpQuery.setExaremeQueryString("select" + selectString + currentOpQuery.getExaremeQueryString());
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
+                                    latestAncestorSchema = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                                 }
                             }
 
@@ -1279,44 +1163,12 @@ public class QueryBuilder {
                                 MyTable outputTable = new MyTable();
                                 outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
                                 outputTable.setIsAFile(false);
-
-                                MyMap someMap = new MyMap();
+                                List<FieldSchema> newCols = new LinkedList<>();
 
                                 String updatedSchemaString = addNewPossibleAliases(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, null);
 
-                                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
+                                updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
 
-                                List<FieldSchema> newCols = new LinkedList<>();
-                                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                                for(ColumnTypePair p : pairsList){
-                                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("ROW__ID")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("rowid")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("bucketid")){
-                                        continue;
-                                    }
-
-                                    FieldSchema f = new FieldSchema();
-                                    f.setName(p.getColumnName());
-                                    f.setType(p.getColumnType());
-                                    newCols.add(f);
-                                }
-
-                                outputTable.setTableName(child.getOperatorId().toLowerCase());
-                                outputTable.setAllCols(newCols);
-                                outputTable.setHasPartitions(false);
-
-                                currentOpQuery.setOutputTable(outputTable);
-                                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
 
                                 /*---Finalize local part of Query---*/
                                 currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
@@ -1325,33 +1177,7 @@ public class QueryBuilder {
 
                                 /*---Check if OpLink is to be created---*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                                for(MyTable inputT : currentOpQuery.getInputTables()){
-                                    boolean isRoot = false;
-                                    for(MyTable rootInputT : inputTables){
-                                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                                            isRoot = true;
-                                            break;
-                                        }
-                                    }
-                                    if(isRoot == false){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                                        OpLink operatorLink = new OpLink();
-                                        operatorLink.setContainerName("c0");
-                                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                        NumParameter nP = new NumParameter("part", 0);
-
-                                        List<Parameter> opParams = new LinkedList<>();
-                                        opParams.add(sP);
-                                        opParams.add(nP);
-
-                                        operatorLink.setParameters(opParams);
-                                        opLinksList.add(operatorLink);
-
-                                    }
-                                }
+                                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
 
                                 /*----Adding Finished Query to List----*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
@@ -1360,13 +1186,7 @@ public class QueryBuilder {
                                 /*----Begin a new Query----*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                                 OperatorQuery opQuery = new OperatorQuery();
-                                opQuery.setDataBasePath(currentDatabasePath);
-                                opQuery.setLocalQueryString("");
-                                opQuery.setExaremeQueryString("");
-                                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                opQuery.setAssignedContainer("c0");
-                                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                                initialiseNewQuery(currentOpQuery, opQuery, outputTable);
 
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + opQuery.getLocalQueryString() + "]");
 
@@ -1383,42 +1203,9 @@ public class QueryBuilder {
                                 MyTable outputTable = new MyTable();
                                 outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
                                 outputTable.setIsAFile(false);
-
-                                MyMap someMap = new MyMap();
-
-                                latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, someMap, latestAncestorSchema, false);
-
                                 List<FieldSchema> newCols = new LinkedList<>();
-                                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                                for(ColumnTypePair p : pairsList){
-                                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("ROW__ID")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("rowid")){
-                                        continue;
-                                    }
-                                    else if(p.getColumnName().contains("bucketid")){
-                                        continue;
-                                    }
 
-                                    FieldSchema f = new FieldSchema();
-                                    f.setName(p.getColumnName());
-                                    f.setType(p.getColumnType());
-                                    newCols.add(f);
-                                }
-
-                                outputTable.setTableName(child.getOperatorId().toLowerCase());
-                                outputTable.setAllCols(newCols);
-                                outputTable.setHasPartitions(false);
-
-                                currentOpQuery.setOutputTable(outputTable);
-                                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
+                                latestAncestorSchema = finaliseOutputTable(currentOperatorNode, currentOpQuery, latestAncestorSchema, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
 
                                 /*---Finalize local part of Query---*/
                                 currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
@@ -1427,33 +1214,7 @@ public class QueryBuilder {
 
                                 /*---Check if OpLink is to be created---*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                                for(MyTable inputT : currentOpQuery.getInputTables()){
-                                    boolean isRoot = false;
-                                    for(MyTable rootInputT : inputTables){
-                                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                                            isRoot = true;
-                                            break;
-                                        }
-                                    }
-                                    if(isRoot == false){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                                        OpLink operatorLink = new OpLink();
-                                        operatorLink.setContainerName("c0");
-                                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                        NumParameter nP = new NumParameter("part", 0);
-
-                                        List<Parameter> opParams = new LinkedList<>();
-                                        opParams.add(sP);
-                                        opParams.add(nP);
-
-                                        operatorLink.setParameters(opParams);
-                                        opLinksList.add(operatorLink);
-
-                                    }
-                                }
+                                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
 
                                 /*----Adding Finished Query to List----*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
@@ -1462,13 +1223,7 @@ public class QueryBuilder {
                                 /*----Begin a new Query----*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                                 OperatorQuery opQuery = new OperatorQuery();
-                                opQuery.setDataBasePath(currentDatabasePath);
-                                opQuery.setLocalQueryString("");
-                                opQuery.setExaremeQueryString("");
-                                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                opQuery.setAssignedContainer("c0");
-                                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                                initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
 
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + opQuery.getLocalQueryString() + "]");
 
@@ -1489,30 +1244,7 @@ public class QueryBuilder {
                         else if(child instanceof GroupByOperator){
                             System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered FIL--->GBY Connection! Child is select: " + child.getOperatorId());
                             if(currentOpQuery.getLocalQueryString().contains("select ") == false) {
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Constructing SELECT statement columns...");
-                                MyMap aMap = new MyMap();
-                                latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                                String selectString = "";
-                                List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                                for (int i = 0; i < pairs.size(); i++) {
-                                    if (i == pairs.size() - 1) {
-                                        selectString = selectString + " " + pairs.get(i).getColumnName() + " ";
-                                    } else {
-                                        selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                                    }
-                                }
-
-                                    /*---Locate new USED columns---*/
-                                for (ColumnTypePair pair : aMap.getColumnAndTypeList()) {
-                                    currentOpQuery.addUsedColumn(pair.getColumnName(), latestAncestorTableName1);
-                                }
-
-                                currentOpQuery.setLocalQueryString("select" + selectString + currentOpQuery.getLocalQueryString());
-                                currentOpQuery.setExaremeQueryString("select" + selectString + currentOpQuery.getExaremeQueryString());
-
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
+                                latestAncestorSchema = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                             }
 
                              /*---Moving to Child Operator---*/
@@ -1524,30 +1256,7 @@ public class QueryBuilder {
                             System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered FIL--->RS Connection! Child is select: " + child.getOperatorId());
                             if (fatherOperatorNode.getOperator() instanceof JoinOperator) {
                                 if (currentOpQuery.getLocalQueryString().contains("select ") == false) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Constructing SELECT statement columns...");
-                                    MyMap aMap = new MyMap();
-                                    latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                                    String selectString = "";
-                                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                                    for (int i = 0; i < pairs.size(); i++) {
-                                        if (i == pairs.size() - 1) {
-                                            selectString = selectString + " " + pairs.get(i).getColumnName() + " ";
-                                        } else {
-                                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                                        }
-                                    }
-
-                                    /*---Locate new USED columns---*/
-                                    for (ColumnTypePair pair : aMap.getColumnAndTypeList()) {
-                                        currentOpQuery.addUsedColumn(pair.getColumnName(), latestAncestorTableName1);
-                                    }
-
-                                    currentOpQuery.setLocalQueryString("select" + selectString + currentOpQuery.getLocalQueryString());
-                                    currentOpQuery.setExaremeQueryString("select" + selectString + currentOpQuery.getExaremeQueryString());
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
+                                    latestAncestorSchema = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                                 }
                             }
 
@@ -1644,31 +1353,9 @@ public class QueryBuilder {
                 String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
 
                 if(currentOpQuery.getLocalQueryString().contains("select ") == false) {
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(updatedSchemaString, aMap, updatedSchemaString, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for (int i = 0; i < pairs.size(); i++) {
-                        if (i == pairs.size() - 1) {
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + " ";
-                        } else {
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-                    }
-
-                    /*---Locate new USED columns---*/
-                    for (ColumnTypePair pair : aMap.getColumnAndTypeList()) {
-                        currentOpQuery.addUsedColumn(pair.getColumnName(), latestAncestorTableName1);
-                    }
-
-                    currentOpQuery.setLocalQueryString("select" + selectString + currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select" + selectString + currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, updatedSchemaString, currentOpQuery);
                 }
+
                 /*---Check Type of Child---*/
                 List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
                 if(children != null){
@@ -1727,30 +1414,7 @@ public class QueryBuilder {
                 String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
 
                 if(currentOpQuery.getLocalQueryString().contains("select ") == false) {
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(updatedSchemaString, aMap, updatedSchemaString, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for (int i = 0; i < pairs.size(); i++) {
-                        if (i == pairs.size() - 1) {
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + " ";
-                        } else {
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-                    }
-
-                /*---Locate new USED columns---*/
-                    for (ColumnTypePair pair : aMap.getColumnAndTypeList()) {
-                        currentOpQuery.addUsedColumn(pair.getColumnName(), latestAncestorTableName1);
-                    }
-
-                    currentOpQuery.setLocalQueryString("select" + selectString + currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select" + selectString + currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, updatedSchemaString, currentOpQuery);
                 }
 
                 /*---Check Type of Child---*/
@@ -1801,114 +1465,9 @@ public class QueryBuilder {
                     System.exit(0);
                 }
 
+                /*---Discover Group By Keys----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Discovering Group By Keys...");
-                List<String> groupByKeys = new LinkedList<>();
-                MyMap changeMap = new MyMap();
-                if(groupByDesc != null){
-                    ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
-                    if (keys != null) {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
-                        for (ExprNodeDesc k : keys) {
-                            if (k != null) {
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
-                                if (k.getCols() != null) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
-                                    if(k.getCols().size() > 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
-                                        System.exit(9);
-                                    }
-                                    else if(k.getCols().size() == 1){
-                                        String col = k.getCols().get(0);
-                                        //if(col.contains("KEY.")){
-                                        //    col = col.replace("KEY.", "");
-                                        //}
-                                        //else if(col.contains("VALUE.")){
-                                        //   col = col.replace("VALUE.", "");
-                                        //}
-
-
-                                        boolean fg = false;
-                                        if(groupByKeys.size() == 0) groupByKeys.add(col);
-                                        else {
-                                            for (String g : groupByKeys) {
-                                                if (g.equals(col)) {
-                                                    fg = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (fg == false)
-                                                groupByKeys.add(col);
-                                        }
-                                    }
-                                } else {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
-                                }
-                            }
-                        }
-
-                        List<String> realColumnAliases = new LinkedList<>();
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
-                        for(String s : groupByKeys){
-                            boolean matchFound = false;
-                            List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
-                            for(ColumnTypePair c : pairs){
-                                if(c.getColumnName().equals(s)){
-                                    realColumnAliases.add(c.getColumnName());
-                                    matchFound = true;
-                                    break;
-                                }
-                                else{
-                                    List<StringParameter> altAliases = c.getAltAliasPairs();
-                                    if(altAliases != null){
-                                        if(altAliases.size() > 0){
-                                            for(StringParameter sP : altAliases){
-                                                if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
-                                                    if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
-                                                        realColumnAliases.add(c.getColumnName());
-                                                        matchFound = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-
-                                            if(matchFound == true){
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if(matchFound == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
-                            }
-                        }
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
-
-                        String expression = "";
-                        int i = 0;
-                        for(i=0; i < realColumnAliases.size(); i++){
-                            if(i == realColumnAliases.size() - 1){
-                                expression = expression.concat(" "+realColumnAliases.get(i));
-                            }
-                            else{
-                                expression = expression.concat(" "+realColumnAliases.get(i)+",");
-                            }
-                        }
-
-                        /*---Locate new USED Columns----*/
-                        for(String s : realColumnAliases){
-                            currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
-                        }
-
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-                    }
-                }
+                discoverGroupByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1, groupByDesc);
 
                 List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
                 if(children != null){
@@ -1956,114 +1515,9 @@ public class QueryBuilder {
                     System.exit(0);
                 }
 
+                /*---Discover Group By Keys----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Discovering Group By Keys...");
-                List<String> groupByKeys = new LinkedList<>();
-                MyMap changeMap = new MyMap();
-                if(groupByDesc != null){
-                    ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
-                    if (keys != null) {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
-                        for (ExprNodeDesc k : keys) {
-                            if (k != null) {
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
-                                if (k.getCols() != null) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
-                                    if(k.getCols().size() > 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
-                                        System.exit(9);
-                                    }
-                                    else if(k.getCols().size() == 1){
-                                        String col = k.getCols().get(0);
-                                        //if(col.contains("KEY.")){
-                                        //    col = col.replace("KEY.", "");
-                                        //}
-                                        //else if(col.contains("VALUE.")){
-                                        //    col = col.replace("VALUE.", "");
-                                        //}
-
-
-                                        boolean fg = false;
-                                        if(groupByKeys.size() == 0) groupByKeys.add(col);
-                                        else {
-                                            for (String g : groupByKeys) {
-                                                if (g.equals(col)) {
-                                                    fg = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (fg == false)
-                                                groupByKeys.add(col);
-                                        }
-                                    }
-                                } else {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
-                                }
-                            }
-                        }
-
-                        List<String> realColumnAliases = new LinkedList<>();
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
-                        for(String s : groupByKeys){
-                            boolean matchFound = false;
-                            List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
-                            for(ColumnTypePair c : pairs){
-                                if(c.getColumnName().equals(s)){
-                                    realColumnAliases.add(c.getColumnName());
-                                    matchFound = true;
-                                    break;
-                                }
-                                else{
-                                    List<StringParameter> altAliases = c.getAltAliasPairs();
-                                    if(altAliases != null){
-                                        if(altAliases.size() > 0){
-                                            for(StringParameter sP : altAliases){
-                                                if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
-                                                    if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
-                                                        realColumnAliases.add(c.getColumnName());
-                                                        matchFound = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-
-                                            if(matchFound == true){
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if(matchFound == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
-                            }
-                        }
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
-
-                        String expression = "";
-                        int i = 0;
-                        for(i=0; i < realColumnAliases.size(); i++){
-                            if(i == realColumnAliases.size() - 1){
-                                expression = expression.concat(" "+realColumnAliases.get(i));
-                            }
-                            else{
-                                expression = expression.concat(" "+realColumnAliases.get(i)+",");
-                            }
-                        }
-
-                        /*---Locate new USED Columns----*/
-                        for(String s : realColumnAliases){
-                            currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
-                        }
-
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-                    }
-                }
+                discoverGroupByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1, groupByDesc);
 
                 List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
                 if(children != null){
@@ -2111,114 +1565,9 @@ public class QueryBuilder {
                     System.exit(0);
                 }
 
+                /*---Discover Group By Keys----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Discovering Group By Keys...");
-                List<String> groupByKeys = new LinkedList<>();
-                MyMap changeMap = new MyMap();
-                if(groupByDesc != null){
-                    ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
-                    if (keys != null) {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
-                        for (ExprNodeDesc k : keys) {
-                            if (k != null) {
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
-                                if (k.getCols() != null) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
-                                    if(k.getCols().size() > 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
-                                        System.exit(9);
-                                    }
-                                    else if(k.getCols().size() == 1){
-                                        String col = k.getCols().get(0);
-                                        //if(col.contains("KEY.")){
-                                        //    col = col.replace("KEY.", "");
-                                        //}
-                                        //else if(col.contains("VALUE.")){
-                                        //    col = col.replace("VALUE.", "");
-                                        //}
-
-
-                                        boolean fg = false;
-                                        if(groupByKeys.size() == 0) groupByKeys.add(col);
-                                        else {
-                                            for (String g : groupByKeys) {
-                                                if (g.equals(col)) {
-                                                    fg = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (fg == false)
-                                                groupByKeys.add(col);
-                                        }
-                                    }
-                                } else {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
-                                }
-                            }
-                        }
-
-                        List<String> realColumnAliases = new LinkedList<>();
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
-                        for(String s : groupByKeys){
-                            boolean matchFound = false;
-                            List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
-                            for(ColumnTypePair c : pairs){
-                                if(c.getColumnName().equals(s)){
-                                    realColumnAliases.add(c.getColumnName());
-                                    matchFound = true;
-                                    break;
-                                }
-                                else{
-                                    List<StringParameter> altAliases = c.getAltAliasPairs();
-                                    if(altAliases != null){
-                                        if(altAliases.size() > 0){
-                                            for(StringParameter sP : altAliases){
-                                                if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
-                                                    if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
-                                                        realColumnAliases.add(c.getColumnName());
-                                                        matchFound = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-
-                                            if(matchFound == true){
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if(matchFound == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
-                            }
-                        }
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
-
-                        String expression = "";
-                        int i = 0;
-                        for(i=0; i < realColumnAliases.size(); i++){
-                            if(i == realColumnAliases.size() - 1){
-                                expression = expression.concat(" "+realColumnAliases.get(i));
-                            }
-                            else{
-                                expression = expression.concat(" "+realColumnAliases.get(i)+",");
-                            }
-                        }
-
-                        /*---Locate new USED Columns----*/
-                        for(String s : realColumnAliases){
-                            currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
-                        }
-
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-                    }
-                }
+                discoverGroupByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1, groupByDesc);
 
                 //Now check for aggregate functions ie HAVING
                 /*ArrayList<AggregationDesc> aggregationDescs = groupByDesc.getAggregators();
@@ -2306,114 +1655,9 @@ public class QueryBuilder {
                     System.exit(0);
                 }
 
+                /*---Discover Group By Keys----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Discovering Group By Keys...");
-                List<String> groupByKeys = new LinkedList<>();
-                MyMap changeMap = new MyMap();
-                if(groupByDesc != null){
-                    ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
-                    if (keys != null) {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
-                        for (ExprNodeDesc k : keys) {
-                            if (k != null) {
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
-                                if (k.getCols() != null) {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
-                                    if(k.getCols().size() > 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
-                                        System.exit(9);
-                                    }
-                                    else if(k.getCols().size() == 1){
-                                        String col = k.getCols().get(0);
-                                        //if(col.contains("KEY.")){
-                                        //    col = col.replace("KEY.", "");
-                                        //}
-                                        //else if(col.contains("VALUE.")){
-                                        //    col = col.replace("VALUE.", "");
-                                        //}
-
-
-                                        boolean fg = false;
-                                        if(groupByKeys.size() == 0) groupByKeys.add(col);
-                                        else {
-                                            for (String g : groupByKeys) {
-                                                if (g.equals(col)) {
-                                                    fg = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (fg == false)
-                                                groupByKeys.add(col);
-                                        }
-                                    }
-                                } else {
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
-                                }
-                            }
-                        }
-
-                        List<String> realColumnAliases = new LinkedList<>();
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
-                        for(String s : groupByKeys){
-                            boolean matchFound = false;
-                            List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
-                            for(ColumnTypePair c : pairs){
-                                if(c.getColumnName().equals(s)){
-                                    realColumnAliases.add(c.getColumnName());
-                                    matchFound = true;
-                                    break;
-                                }
-                                else{
-                                    List<StringParameter> altAliases = c.getAltAliasPairs();
-                                    if(altAliases != null){
-                                        if(altAliases.size() > 0){
-                                            for(StringParameter sP : altAliases){
-                                                if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
-                                                    if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
-                                                        realColumnAliases.add(c.getColumnName());
-                                                        matchFound = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-
-                                            if(matchFound == true){
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if(matchFound == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
-                            }
-                        }
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
-
-                        String expression = "";
-                        int i = 0;
-                        for(i=0; i < realColumnAliases.size(); i++){
-                            if(i == realColumnAliases.size() - 1){
-                                expression = expression.concat(" "+realColumnAliases.get(i));
-                            }
-                            else{
-                                expression = expression.concat(" "+realColumnAliases.get(i)+",");
-                            }
-                        }
-
-                        /*---Locate new USED Columns----*/
-                        for(String s : realColumnAliases){
-                            currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
-                        }
-
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-                    }
-                }
+                discoverGroupByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1, groupByDesc);
 
                 //Now check for aggregate functions ie HAVING
                 /*ArrayList<AggregationDesc> aggregationDescs = groupByDesc.getAggregators();
@@ -2509,172 +1753,12 @@ public class QueryBuilder {
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
                 if(currentOpQuery.getLocalQueryString().contains("select ") == false){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for(int i = 0; i < pairs.size(); i++){
-                        if(i == pairs.size() - 1){
-                            selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                        }
-                        else{
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-
-                        //Attempt to add used column if not existing
-                        currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
-                    }
-
-                    currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                 }
 
-                //Check for order by
+                /*---Add possible Order By Keys---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
-                ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
-                ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
-
-                if(reduceSinkDesc.getOrder() != null){
-                    if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
-                        List<String> orderByCols = new LinkedList<>();
-                        if(reduceSinkDesc.getKeyCols() != null) {
-                            ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
-                            if(exprCols.size() > 0){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
-                                if(exprCols.size() == reduceSinkDesc.getOrder().length()){
-
-                                    String orderByString = " order by ";
-                                    MyMap keysMap = new MyMap();
-                                    String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
-                                    if(partsPairs.length != exprCols.size()){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
-                                        System.exit(0);
-                                    }
-
-                                    for(String partPair : partsPairs){ //Add all keys to a map
-                                        String[] parts = partPair.split(" ");
-                                        String currentColName = "";
-                                        String type = "";
-                                        if(parts.length == 3){
-                                            currentColName = parts[0];
-                                            type = parts[2].replace(")", "");
-                                        }
-                                        else if(parts.length == 4){
-                                            currentColName = parts[1];
-                                            type = parts[3].replace(")", "");
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
-                                            System.exit(0);
-                                        }
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
-
-                                        ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
-
-                                        keysMap.addPair(somePair);
-                                    }
-
-                                    //Use the map to locate the real aliases and form the Order by clause
-                                    for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
-                                        ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
-
-                                        String realAliasOfKey = "";
-                                        boolean aliasFound = false;
-                                        String fatherName = fatherOperatorNode.getOperatorName();
-                                        String order = "";
-
-                                        if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
-                                            order = "ASC";
-                                        }
-                                        else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
-                                            order = "DESC";
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
-                                            System.exit(0);
-                                        }
-
-                                        for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
-                                            if(cP.getColumnType().equals(keyPair.getColumnType())){
-                                                if(cP.getColumnName().equals(keyPair.getColumnName())){
-                                                    aliasFound = true;
-                                                    realAliasOfKey = cP.getColumnName();
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                    break;
-                                                }
-                                                else{
-                                                    if(cP.getAltAliasPairs() != null){
-                                                        if(cP.getAltAliasPairs().size() > 0){
-                                                            for(StringParameter sP : cP.getAltAliasPairs()){
-                                                                if(sP.getParemeterType().equals(fatherName)){
-                                                                    if(sP.getValue().equals(keyPair.getColumnName())){
-                                                                        aliasFound = true;
-                                                                        realAliasOfKey = cP.getColumnName();
-                                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if(aliasFound == true){
-                                                                break;
-                                                            }
-
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if(aliasFound == false){
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
-                                            System.exit(0);
-                                        }
-
-                                        if(i == keysMap.getColumnAndTypeList().size() - 1){
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
-                                        }
-                                        else{
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
-                                        }
-
-                                        //Add used column order by
-                                        currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
-                                    }
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
-                                    currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
-                                    currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-
-
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                            System.exit(0);
-                        }
-                    }
-                }
+                discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
 
@@ -2683,47 +1767,14 @@ public class QueryBuilder {
                 MyTable outputTable = new MyTable();
                 outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
                 outputTable.setIsAFile(false);
-
-                MyMap someMap = new MyMap();
+                List<FieldSchema> newCols = new LinkedList<>();
 
                 if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
                     updatedSchemaString = latestAncestorSchema;
                 }
 
-                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
-                List<FieldSchema> newCols = new LinkedList<>();
-                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                for(ColumnTypePair p : pairsList){
-                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("ROW__ID")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("rowid")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("bucketid")){
-                        continue;
-                    }
-
-                    FieldSchema f = new FieldSchema();
-                    f.setName(p.getColumnName());
-                    f.setType(p.getColumnType());
-                    newCols.add(f);
-                }
-
-                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                outputTable.setAllCols(newCols);
-                outputTable.setHasPartitions(false);
-
-                currentOpQuery.setOutputTable(outputTable);
-                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
+                updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
 
                 /*---Finalize local part of Query---*/
                 currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
@@ -2732,33 +1783,7 @@ public class QueryBuilder {
 
                 /*---Check if OpLink is to be created---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                for(MyTable inputT : currentOpQuery.getInputTables()){
-                    boolean isRoot = false;
-                    for(MyTable rootInputT : inputTables){
-                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                            isRoot = true;
-                            break;
-                        }
-                    }
-                    if(isRoot == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                        OpLink operatorLink = new OpLink();
-                        operatorLink.setContainerName("c0");
-                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                        NumParameter nP = new NumParameter("part", 0);
-
-                        List<Parameter> opParams = new LinkedList<>();
-                        opParams.add(sP);
-                        opParams.add(nP);
-
-                        operatorLink.setParameters(opParams);
-                        opLinksList.add(operatorLink);
-
-                    }
-                }
+                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
 
                 /*----Adding Finished Query to List----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
@@ -2767,13 +1792,7 @@ public class QueryBuilder {
                 /*----Begin a new Query----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                 OperatorQuery opQuery = new OperatorQuery();
-                opQuery.setDataBasePath(currentDatabasePath);
-                opQuery.setLocalQueryString("");
-                opQuery.setExaremeQueryString("");
-                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                opQuery.setAssignedContainer("c0");
-                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
 
@@ -2899,221 +1918,29 @@ public class QueryBuilder {
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
                 if(currentOpQuery.getLocalQueryString().contains("select ") == false){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for(int i = 0; i < pairs.size(); i++){
-                        if(i == pairs.size() - 1){
-                            selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                        }
-                        else{
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-
-                        //Attempt to add used column if not existing
-                        currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
-                    }
-
-                    currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                 }
 
-                //Check for order by
+                /*---Add possible Order By Keys---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
-                ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
-                ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
-
-                if(reduceSinkDesc.getOrder() != null){
-                    if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
-                        List<String> orderByCols = new LinkedList<>();
-                        if(reduceSinkDesc.getKeyCols() != null) {
-                            ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
-                            if(exprCols.size() > 0){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
-                                if(exprCols.size() == reduceSinkDesc.getOrder().length()){
-
-                                    String orderByString = " order by ";
-                                    MyMap keysMap = new MyMap();
-                                    String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
-                                    if(partsPairs.length != exprCols.size()){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
-                                        System.exit(0);
-                                    }
-
-                                    for(String partPair : partsPairs){ //Add all keys to a map
-                                        String[] parts = partPair.split(" ");
-                                        String currentColName = "";
-                                        String type = "";
-                                        if(parts.length == 3){
-                                            currentColName = parts[0];
-                                            type = parts[2].replace(")", "");
-                                        }
-                                        else if(parts.length == 4){
-                                            currentColName = parts[1];
-                                            type = parts[3].replace(")", "");
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
-                                            System.exit(0);
-                                        }
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
-
-                                        ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
-
-                                        keysMap.addPair(somePair);
-                                    }
-
-                                    //Use the map to locate the real aliases and form the Order by clause
-                                    for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
-                                        ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
-
-                                        String realAliasOfKey = "";
-                                        boolean aliasFound = false;
-                                        String fatherName = fatherOperatorNode.getOperatorName();
-                                        String order = "";
-
-                                        if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
-                                            order = "ASC";
-                                        }
-                                        else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
-                                            order = "DESC";
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
-                                            System.exit(0);
-                                        }
-
-                                        for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
-                                            if(cP.getColumnType().equals(keyPair.getColumnType())){
-                                                if(cP.getColumnName().equals(keyPair.getColumnName())){
-                                                    aliasFound = true;
-                                                    realAliasOfKey = cP.getColumnName();
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                    break;
-                                                }
-                                                else{
-                                                    if(cP.getAltAliasPairs() != null){
-                                                        if(cP.getAltAliasPairs().size() > 0){
-                                                            for(StringParameter sP : cP.getAltAliasPairs()){
-                                                                if(sP.getParemeterType().equals(fatherName)){
-                                                                    if(sP.getValue().equals(keyPair.getColumnName())){
-                                                                        aliasFound = true;
-                                                                        realAliasOfKey = cP.getColumnName();
-                                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if(aliasFound == true){
-                                                                break;
-                                                            }
-
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if(aliasFound == false){
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
-                                            System.exit(0);
-                                        }
-
-                                        if(i == keysMap.getColumnAndTypeList().size() - 1){
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
-                                        }
-                                        else{
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
-                                        }
-
-                                        //Add used column order by
-                                        currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
-
-                                    }
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
-                                    currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
-                                    currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-
-
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                            System.exit(0);
-                        }
-                    }
-                }
+                discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
 
                 /*---Finalising outputTable---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
-                MyTable outputTable = new MyTable();
-                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                outputTable.setIsAFile(false);
-
-                MyMap someMap = new MyMap();
 
                 if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
                     updatedSchemaString = latestAncestorSchema;
                 }
 
-                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
+                MyTable outputTable = new MyTable();
+                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+                outputTable.setIsAFile(false);
                 List<FieldSchema> newCols = new LinkedList<>();
-                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                for(ColumnTypePair p : pairsList){
-                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("ROW__ID")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("rowid")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("bucketid")){
-                        continue;
-                    }
-                    FieldSchema f = new FieldSchema();
-                    f.setName(p.getColumnName());
-                    f.setType(p.getColumnType());
-                    newCols.add(f);
-                }
 
-                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                outputTable.setAllCols(newCols);
-                outputTable.setHasPartitions(false);
-
-                currentOpQuery.setOutputTable(outputTable);
-                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
+                updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
 
                 /*---Finalize local part of Query---*/
                 currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
@@ -3122,32 +1949,7 @@ public class QueryBuilder {
 
                 /*---Check if OpLink is to be created---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                for(MyTable inputT : currentOpQuery.getInputTables()){
-                    boolean isRoot = false;
-                    for(MyTable rootInputT : inputTables){
-                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                            isRoot = true;
-                            break;
-                        }
-                    }
-                    if(isRoot == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                        OpLink operatorLink = new OpLink();
-                        operatorLink.setContainerName("c0");
-                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                        NumParameter nP = new NumParameter("part", 0);
-
-                        List<Parameter> opParams = new LinkedList<>();
-                        opParams.add(sP);
-                        opParams.add(nP);
-
-                        operatorLink.setParameters(opParams);
-                        opLinksList.add(operatorLink);
-                    }
-                }
+                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
 
                 /*----Adding Finished Query to List----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
@@ -3201,13 +2003,7 @@ public class QueryBuilder {
                                     /*----Begin a new Query----*/
                                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                                     OperatorQuery opQuery = new OperatorQuery();
-                                    opQuery.setDataBasePath(currentDatabasePath);
-                                    opQuery.setLocalQueryString("");
-                                    opQuery.setExaremeQueryString("");
-                                    opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                    opQuery.setAssignedContainer("c0");
-                                    opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                    opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                                    initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
 
                                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
 
@@ -3256,13 +2052,7 @@ public class QueryBuilder {
                                 /*----Begin a new Query----*/
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                                 OperatorQuery opQuery = new OperatorQuery();
-                                opQuery.setDataBasePath(currentDatabasePath);
-                                opQuery.setLocalQueryString("");
-                                opQuery.setExaremeQueryString("");
-                                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                opQuery.setAssignedContainer("c0");
-                                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                                initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
 
                                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
                                 JoinOperator joinOp = (JoinOperator) child;
@@ -3369,173 +2159,12 @@ public class QueryBuilder {
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
                 if(currentOpQuery.getLocalQueryString().contains("select ") == false){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for(int i = 0; i < pairs.size(); i++){
-                        if(i == pairs.size() - 1){
-                            selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                        }
-                        else{
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-
-                        //Attempt to add used column if not existing
-                        currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
-                    }
-
-                    currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
                 }
 
-                //Check for order by
+                /*---Add possible Order By Keys---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
-                ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
-                ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
-
-                if(reduceSinkDesc.getOrder() != null){
-                    if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
-                        List<String> orderByCols = new LinkedList<>();
-                        if(reduceSinkDesc.getKeyCols() != null) {
-                            ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
-                            if(exprCols.size() > 0){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
-                                if(exprCols.size() == reduceSinkDesc.getOrder().length()){
-
-                                    String orderByString = " order by ";
-                                    MyMap keysMap = new MyMap();
-                                    String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
-                                    if(partsPairs.length != exprCols.size()){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
-                                        System.exit(0);
-                                    }
-
-                                    for(String partPair : partsPairs){ //Add all keys to a map
-                                        String[] parts = partPair.split(" ");
-                                        String currentColName = "";
-                                        String type = "";
-                                        if(parts.length == 3){
-                                            currentColName = parts[0];
-                                            type = parts[2].replace(")", "");
-                                        }
-                                        else if(parts.length == 4){
-                                            currentColName = parts[1];
-                                            type = parts[3].replace(")", "");
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
-                                            System.exit(0);
-                                        }
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
-
-                                        ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
-
-                                        keysMap.addPair(somePair);
-                                    }
-
-                                    //Use the map to locate the real aliases and form the Order by clause
-                                    for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
-                                        ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
-
-                                        String realAliasOfKey = "";
-                                        boolean aliasFound = false;
-                                        String fatherName = fatherOperatorNode.getOperatorName();
-                                        String order = "";
-
-                                        if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
-                                            order = "ASC";
-                                        }
-                                        else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
-                                            order = "DESC";
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
-                                            System.exit(0);
-                                        }
-
-                                        for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
-                                            if(cP.getColumnType().equals(keyPair.getColumnType())){
-                                                if(cP.getColumnName().equals(keyPair.getColumnName())){
-                                                    aliasFound = true;
-                                                    realAliasOfKey = cP.getColumnName();
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                    break;
-                                                }
-                                                else{
-                                                    if(cP.getAltAliasPairs() != null){
-                                                        if(cP.getAltAliasPairs().size() > 0){
-                                                            for(StringParameter sP : cP.getAltAliasPairs()){
-                                                                if(sP.getParemeterType().equals(fatherName)){
-                                                                    if(sP.getValue().equals(keyPair.getColumnName())){
-                                                                        aliasFound = true;
-                                                                        realAliasOfKey = cP.getColumnName();
-                                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if(aliasFound == true){
-                                                                break;
-                                                            }
-
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if(aliasFound == false){
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
-                                            System.exit(0);
-                                        }
-
-                                        if(i == keysMap.getColumnAndTypeList().size() - 1){
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
-                                        }
-                                        else{
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
-                                        }
-
-                                        //Add used column order by
-                                        currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
-
-                                    }
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
-                                    currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
-                                    currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-
-
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                            System.exit(0);
-                        }
-                    }
-                }
+                discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
 
@@ -3544,46 +2173,14 @@ public class QueryBuilder {
                 MyTable outputTable = new MyTable();
                 outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
                 outputTable.setIsAFile(false);
-
-                MyMap someMap = new MyMap();
+                List<FieldSchema> newCols = new LinkedList<>();
 
                 if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
                     System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
                     updatedSchemaString = latestAncestorSchema;
                 }
 
-                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
-                List<FieldSchema> newCols = new LinkedList<>();
-                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                for(ColumnTypePair p : pairsList){
-                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("ROW__ID")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("rowid")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("bucketid")){
-                        continue;
-                    }
-                    FieldSchema f = new FieldSchema();
-                    f.setName(p.getColumnName());
-                    f.setType(p.getColumnType());
-                    newCols.add(f);
-                }
-
-                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                outputTable.setAllCols(newCols);
-                outputTable.setHasPartitions(false);
-
-                currentOpQuery.setOutputTable(outputTable);
-                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
+                updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
 
                 /*---Finalize local part of Query---*/
                 currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
@@ -3592,33 +2189,7 @@ public class QueryBuilder {
 
                 /*---Check if OpLink is to be created---*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                for(MyTable inputT : currentOpQuery.getInputTables()){
-                    boolean isRoot = false;
-                    for(MyTable rootInputT : inputTables){
-                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                            isRoot = true;
-                            break;
-                        }
-                    }
-                    if(isRoot == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                        OpLink operatorLink = new OpLink();
-                        operatorLink.setContainerName("c0");
-                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                        NumParameter nP = new NumParameter("part", 0);
-
-                        List<Parameter> opParams = new LinkedList<>();
-                        opParams.add(sP);
-                        opParams.add(nP);
-
-                        operatorLink.setParameters(opParams);
-                        opLinksList.add(operatorLink);
-
-                    }
-                }
+                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
 
                 /*----Adding Finished Query to List----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
@@ -3627,13 +2198,7 @@ public class QueryBuilder {
                 /*----Begin a new Query----*/
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
                 OperatorQuery opQuery = new OperatorQuery();
-                opQuery.setDataBasePath(currentDatabasePath);
-                opQuery.setLocalQueryString("");
-                opQuery.setExaremeQueryString("");
-                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                opQuery.setAssignedContainer("c0");
-                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
 
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
 
@@ -3677,894 +2242,14 @@ public class QueryBuilder {
             }
             else if(fatherOperatorNode.getOperator() instanceof TableScanOperator){
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is TableScanOperator: "+fatherOperatorNode.getOperatorName());
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if Father is Root...");
-                if((fatherOperatorNode.getOperator().getParentOperators() == null) || (fatherOperatorNode.getOperator().getParentOperators().size() == 0)){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is root...OK!");
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is not ROOT! Error!");
-                    System.exit(0);
-                }
 
-                String updatedSchemaString = "";
-
-                if(currentOperatorNode.getOperator().getSchema().toString().equals("()") || (currentOperatorNode.getOperator().getSchema() == null)){
-                    if(currentOperatorNode.getOperator().getColumnExprMap() != null){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": RowSchema is empty! We will build Schema from ColumnExprMap...");
-
-                        MyMap someMap = new MyMap();
-
-                        String pastSchema = extractColsFromTypeName(latestAncestorSchema, someMap, latestAncestorSchema, false);
-
-                        updatedSchemaString = "(";
-                        int i = 0;
-                        for(Map.Entry<String, ExprNodeDesc> entry : currentOperatorNode.getOperator().getColumnExprMap().entrySet()){
-                            String newColName = entry.getKey();
-                            String pastName = entry.getValue().getCols().get(0);
-
-                            boolean matchFound = false;
-                            String nameForSchema = "";
-                            String typeForSchema = "";
-
-                            for(ColumnTypePair oldPair : someMap.getColumnAndTypeList()){ //Search all the parent operator Map
-                                if(oldPair.getColumnName().equals(pastName)){
-                                    for(ColumnTypePair mapPair : columnAndTypeMap.getColumnAndTypeList()){ //Search all the total map
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": TypeOldPair: "+oldPair.getColumnType()+" - TypeNewPair: "+mapPair.getColumnType());
-                                        if(mapPair.getColumnType().contains(oldPair.getColumnType())){
-                                            if(mapPair.getColumnName().equals(oldPair.getColumnName())){
-                                                mapPair.addAltAlias(currentOperatorNode.getOperatorName(), newColName);
-                                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" - was added in map as altAlias for: "+mapPair.getColumnName());
-                                                matchFound = true;
-                                                nameForSchema = mapPair.getColumnName();
-                                                typeForSchema = mapPair.getColumnType();
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if(matchFound == true) break;
-                                }
-
-                            }
-
-                            if(matchFound == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" has no match!");
-                                System.exit(0);
-                            }
-
-                            if(i == currentOperatorNode.getOperator().getColumnExprMap().entrySet().size() - 1){
-                                updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ")");
-                            }
-                            else{
-                                updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ",");
-                            }
-
-                            i++;
-                        }
-
-                    }
-                    else{
-                        updatedSchemaString = latestAncestorSchema;
-                    }
-                }
-                else {
-                    if(currentOperatorNode.getOperator().getSchema() == null){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
-                        updatedSchemaString = latestAncestorSchema;
-                    }
-                    else {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
-                        updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
-                    }
-                }
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
-                if(currentOpQuery.getLocalQueryString().contains("select ") == false){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                    MyMap aMap = new MyMap();
-                    updatedSchemaString = extractColsFromTypeName(updatedSchemaString, aMap, updatedSchemaString, false);
-
-                    String selectString = "";
-                    List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                    for(int i = 0; i < pairs.size(); i++){
-                        if(i == pairs.size() - 1){
-                            selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                        }
-                        else{
-                            selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                        }
-
-                        //Attempt to add used column if not existing
-                        currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
-                    }
-
-                    currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
-                    currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                }
-
-                //Check for order by
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
-                ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
-                ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
-
-                if(reduceSinkDesc.getOrder() != null){
-                    if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
-                        List<String> orderByCols = new LinkedList<>();
-                        if(reduceSinkDesc.getKeyCols() != null) {
-                            ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
-                            if(exprCols.size() > 0){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
-                                if(exprCols.size() == reduceSinkDesc.getOrder().length()){
-
-                                    String orderByString = " order by ";
-                                    MyMap keysMap = new MyMap();
-                                    String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
-                                    if(partsPairs.length != exprCols.size()){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
-                                        System.exit(0);
-                                    }
-
-                                    for(String partPair : partsPairs){ //Add all keys to a map
-                                        String[] parts = partPair.split(" ");
-                                        String currentColName = "";
-                                        String type = "";
-                                        if(parts.length == 3){
-                                            currentColName = parts[0];
-                                            type = parts[2].replace(")", "");
-                                        }
-                                        else if(parts.length == 4){
-                                            currentColName = parts[1];
-                                            type = parts[3].replace(")", "");
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
-                                            System.exit(0);
-                                        }
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
-
-                                        ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
-
-                                        keysMap.addPair(somePair);
-                                    }
-
-                                    //Use the map to locate the real aliases and form the Order by clause
-                                    for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
-                                        ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
-
-                                        String realAliasOfKey = "";
-                                        boolean aliasFound = false;
-                                        String fatherName = fatherOperatorNode.getOperatorName();
-                                        String order = "";
-
-                                        if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
-                                            order = "ASC";
-                                        }
-                                        else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
-                                            order = "DESC";
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
-                                            System.exit(0);
-                                        }
-
-                                        for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
-                                            if(cP.getColumnType().equals(keyPair.getColumnType())){
-                                                if(cP.getColumnName().equals(keyPair.getColumnName())){
-                                                    aliasFound = true;
-                                                    realAliasOfKey = cP.getColumnName();
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                    break;
-                                                }
-                                                else{
-                                                    if(cP.getAltAliasPairs() != null){
-                                                        if(cP.getAltAliasPairs().size() > 0){
-                                                            for(StringParameter sP : cP.getAltAliasPairs()){
-                                                                if(sP.getParemeterType().equals(fatherName)){
-                                                                    if(sP.getValue().equals(keyPair.getColumnName())){
-                                                                        aliasFound = true;
-                                                                        realAliasOfKey = cP.getColumnName();
-                                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if(aliasFound == true){
-                                                                break;
-                                                            }
-
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if(aliasFound == false){
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
-                                            System.exit(0);
-                                        }
-
-                                        if(i == keysMap.getColumnAndTypeList().size() - 1){
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
-                                        }
-                                        else{
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
-                                        }
-
-                                        //Add used column order by
-                                        currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
-
-                                    }
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
-                                    currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
-                                    currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-
-
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                            System.exit(0);
-                        }
-                    }
-                }
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
-
-                /*---Finalising outputTable---*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
-                MyTable outputTable = new MyTable();
-                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                outputTable.setIsAFile(false);
-
-                MyMap someMap = new MyMap();
-
-                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
-                List<FieldSchema> newCols = new LinkedList<>();
-                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                for(ColumnTypePair p : pairsList){
-                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("ROW__ID")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("rowid")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("bucketid")){
-                        continue;
-                    }
-                    FieldSchema f = new FieldSchema();
-                    f.setName(p.getColumnName());
-                    f.setType(p.getColumnType());
-                    newCols.add(f);
-                }
-
-                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                outputTable.setAllCols(newCols);
-                outputTable.setHasPartitions(false);
-
-                currentOpQuery.setOutputTable(outputTable);
-                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                /*---Finalize local part of Query---*/
-                currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                /*---Check if OpLink is to be created---*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                for(MyTable inputT : currentOpQuery.getInputTables()){
-                    boolean isRoot = false;
-                    for(MyTable rootInputT : inputTables){
-                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                            isRoot = true;
-                            break;
-                        }
-                    }
-                    if(isRoot == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                        OpLink operatorLink = new OpLink();
-                        operatorLink.setContainerName("c0");
-                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                        NumParameter nP = new NumParameter("part", 0);
-
-                        List<Parameter> opParams = new LinkedList<>();
-                        opParams.add(sP);
-                        opParams.add(nP);
-
-                        operatorLink.setParameters(opParams);
-                        opLinksList.add(operatorLink);
-
-                    }
-                }
-
-                /*----Adding Finished Query to List----*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
-                allQueries.add(currentOpQuery);
-
-
-                //TODO JOIN
-                /*---Moving to Child Operator---*/
-                List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
-                if(children != null){
-                    if(children.size() == 1){
-                        Operator<?> child = children.get(0);
-                        if(child instanceof JoinOperator){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->JOIN connection!");
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if JOIN_POINT: "+child.getOperatorId()+" exists...");
-
-                            if(joinPointList.size() > 0){
-                                boolean joinPExists = false;
-                                for(JoinPoint jP : joinPointList){
-                                    if(jP.getId().equals(child.getOperatorId())){
-                                        joinPExists = true;
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" Exists! Removing it from List!");
-
-                                        OperatorQuery associatedQuery = jP.getAssociatedOpQuery();
-                                        String otherParent = jP.getCreatedById();
-                                        latestAncestorTableName2 = jP.getLatestAncestorTableName();
-                                        OperatorNode secondFather = jP.getOtherFatherNode();
-                                        String joinPhrase = jP.getJoinPhrase();
-
-                                        joinPointList.remove(jP);
-
-                                        associatedQuery.addInputTable(currentOpQuery.getOutputTable());
-
-                                        associatedQuery.setLocalQueryString(associatedQuery.getLocalQueryString().concat(" "+joinPhrase+" "+currentOpQuery.getOutputTable().getTableName().toLowerCase()+" on "));
-                                        associatedQuery.setExaremeQueryString(associatedQuery.getExaremeQueryString().concat(" "+joinPhrase+" "+currentOpQuery.getOutputTable().getTableName().toLowerCase()+" on "));
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
-
-                                        OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
-
-                                        goToChildOperator(childNode, currentOperatorNode, associatedQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName().toLowerCase(), latestAncestorTableName2, secondFather);
-
-                                        return;
-                                    }
-                                }
-
-                                if(joinPExists == false){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" does not exist! We will create it and return!");
-
-                                    /*----Begin a new Query----*/
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
-                                    OperatorQuery opQuery = new OperatorQuery();
-                                    opQuery.setDataBasePath(currentDatabasePath);
-                                    opQuery.setLocalQueryString("");
-                                    opQuery.setExaremeQueryString("");
-                                    opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                    opQuery.setAssignedContainer("c0");
-                                    opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                    opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
-                                    JoinOperator joinOp = (JoinOperator) child;
-                                    JoinDesc joinDesc = joinOp.getConf();
-
-                                    JoinCondDesc[] joinCondDescs = joinDesc.getConds();
-                                    if(joinCondDescs.length > 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": More than 1 JoinCondDesc! Error!");
-                                        System.exit(0);
-                                    }
-
-                                    String joinPhrase = "";
-                                    if(joinCondDescs[0].getType() == 0){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=0 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                        joinPhrase = " inner join ";
-                                    }
-                                    else if(joinCondDescs[0].getType() == 1){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=1 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                        joinPhrase = " left join ";
-                                    }
-                                    else if(joinCondDescs[0].getType() == 2){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=2 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                        joinPhrase = " right join ";
-                                    }
-                                    else if(joinCondDescs[0].getType() == 3){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=3 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                        joinPhrase = " full outer join ";
-                                    }
-                                    else{
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": UNSUPPORTED JOIN TYPE! JoinString: "+joinCondDescs[0].getJoinCondString());
-                                        System.exit(0);
-                                        //joinPhrase = " full outer join ";
-                                    }
-
-                                    JoinPoint joinP = new JoinPoint(child.getOperatorId(), currentOperatorNode.getOperatorName(), opQuery, latestAncestorTableName1, currentOperatorNode, joinPhrase);
-
-                                    joinPointList.add(joinP);
-
-                                    return;
-                                }
-                            }
-                            else{ //No JoinPoint Exists
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" does not exist! We will create it and return!");
-
-                                /*----Begin a new Query----*/
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
-                                OperatorQuery opQuery = new OperatorQuery();
-                                opQuery.setDataBasePath(currentDatabasePath);
-                                opQuery.setLocalQueryString("");
-                                opQuery.setExaremeQueryString("");
-                                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                opQuery.setAssignedContainer("c0");
-                                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-                                JoinOperator joinOp = (JoinOperator) child;
-                                JoinDesc joinDesc = joinOp.getConf();
-
-                                JoinCondDesc[] joinCondDescs = joinDesc.getConds();
-                                if(joinCondDescs.length > 1){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": More than 1 JoinCondDesc! Error!");
-                                    System.exit(0);
-                                }
-
-                                String joinPhrase = "";
-                                if(joinCondDescs[0].getType() == 0){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=0 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                    joinPhrase = " inner join ";
-                                }
-                                else if(joinCondDescs[0].getType() == 1){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=1 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                    joinPhrase = " left join ";
-                                }
-                                else if(joinCondDescs[0].getType() == 2){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=2 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                    joinPhrase = " right join ";
-                                }
-                                else if(joinCondDescs[0].getType() == 3){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=3 - JoinString: "+joinCondDescs[0].getJoinCondString());
-                                    joinPhrase = " full outer join ";
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": UNSUPPORTED JOIN TYPE! JoinString: "+joinCondDescs[0].getJoinCondString());
-                                    System.exit(0);
-                                    //joinPhrase = " full outer join ";
-                                }
-
-                                JoinPoint joinP = new JoinPoint(child.getOperatorId(), currentOperatorNode.getOperatorName(), opQuery, latestAncestorTableName1, currentOperatorNode, joinPhrase);
-
-                                joinPointList.add(joinP);
-
-                                return;
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported child for ReduceSinkOperator!");
-                            System.exit(0);
-                        }
-                    }
-                    else{
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are NOT SIZE==1!");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are null");
-                    System.exit(0);
-                }
+                reduceSinkHasFatherTableScan(currentOperatorNode, fatherOperatorNode, otherFatherNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2);
 
             }
             else if(fatherOperatorNode.getOperator() instanceof SelectOperator){
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is a SelectOperator: "+fatherOperatorNode.getOperatorName());
 
-                String updatedSchemaString = "";
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if GrandFather is Root...");
-                OperatorNode grandFatherOperatorNode = exaremeGraph.getOperatorNodeByName(fatherOperatorNode.getOperator().getParentOperators().get(0).getOperatorId());
-
-                if((grandFatherOperatorNode.getOperator().getParentOperators() == null) || (grandFatherOperatorNode.getOperator().getParentOperators().size() == 0)){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": GrandFather is root...TableScan!");
-
-                    if(currentOperatorNode.getOperator().getSchema().toString().equals("()") || (currentOperatorNode.getOperator().getSchema() == null)){
-                        if(currentOperatorNode.getOperator().getColumnExprMap() != null){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": RowSchema is empty! We will build Schema from ColumnExprMap...");
-
-                            MyMap someMap = new MyMap();
-
-                            String pastSchema = extractColsFromTypeName(grandFatherOperatorNode.getOperator().getSchema().toString(), someMap, grandFatherOperatorNode.getOperator().getSchema().toString(), false);
-
-                            List<FieldSchema> newCols = new LinkedList<>();
-                            List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                            for(ColumnTypePair p : pairsList){
-                                if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                                    continue;
-                                }
-                                else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                                    continue;
-                                }
-                                else if(p.getColumnName().contains("ROW__ID")){
-                                    continue;
-                                }
-                                else if(p.getColumnName().contains("rowid")){
-                                    continue;
-                                }
-                                else if(p.getColumnName().contains("bucketid")){
-                                    continue;
-                                }
-                                FieldSchema f = new FieldSchema();
-                                f.setName(p.getColumnName());
-                                f.setType(p.getColumnType());
-                                newCols.add(f);
-                            }
-
-                            updatedSchemaString = "(";
-                            int i = 0;
-                            for(Map.Entry<String, ExprNodeDesc> entry : currentOperatorNode.getOperator().getColumnExprMap().entrySet()){
-                                String newColName = entry.getKey();
-                                String pastName = entry.getValue().getCols().get(0);
-
-                                boolean matchFound = false;
-                                String nameForSchema = "";
-                                String typeForSchema = "";
-
-                                for(ColumnTypePair oldPair : someMap.getColumnAndTypeList()){ //Search all the parent operator Map
-                                    if(oldPair.getColumnName().equals(pastName)){
-                                        for(ColumnTypePair mapPair : columnAndTypeMap.getColumnAndTypeList()){ //Search all the total map
-                                            if(mapPair.getColumnType().equals(oldPair.getColumnType())){
-                                                if(mapPair.getColumnName().equals(oldPair.getColumnName())){
-                                                    mapPair.addAltAlias(currentOperatorNode.getOperatorName(), newColName);
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" - was added in map as altAlias for: "+mapPair.getColumnName());
-                                                    matchFound = true;
-                                                    nameForSchema = mapPair.getColumnName();
-                                                    typeForSchema = mapPair.getColumnType();
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        if(matchFound == true) break;
-                                    }
-
-                                }
-
-                                if(matchFound == false){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" has no match!");
-                                    System.exit(0);
-                                }
-
-                                if(i == currentOperatorNode.getOperator().getColumnExprMap().entrySet().size() - 1){
-                                    updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ")");
-                                }
-                                else{
-                                    updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ",");
-                                }
-
-                                i++;
-                            }
-
-                        }
-                        else{
-                            updatedSchemaString = latestAncestorSchema;
-                        }
-                    }
-                    else {
-                        if(currentOperatorNode.getOperator().getSchema() == null){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
-                            updatedSchemaString = latestAncestorSchema;
-                        }
-                        else {
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
-                            updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
-                        }
-                    }
-                }
-                else{
-                    if(currentOperatorNode.getOperator().getSchema() == null){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
-                        updatedSchemaString = latestAncestorSchema;
-                    }
-                    else {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
-                        updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
-                    }
-                }
-
-                //Check for order by
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
-                ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
-                ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
-
-                if(reduceSinkDesc.getOrder() != null){
-                    if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
-                        List<String> orderByCols = new LinkedList<>();
-                        if(reduceSinkDesc.getKeyCols() != null) {
-                            ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
-                            if(exprCols.size() > 0){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
-                                if(exprCols.size() == reduceSinkDesc.getOrder().length()){
-
-                                    String orderByString = " order by ";
-                                    MyMap keysMap = new MyMap();
-                                    String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
-                                    if(partsPairs.length != exprCols.size()){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
-                                        System.exit(0);
-                                    }
-
-                                    for(String partPair : partsPairs){ //Add all keys to a map
-                                        String[] parts = partPair.split(" ");
-                                        String currentColName = "";
-                                        String type = "";
-                                        if(parts.length == 3){
-                                            currentColName = parts[0];
-                                            type = parts[2].replace(")", "");
-                                        }
-                                        else if(parts.length == 4){
-                                            currentColName = parts[1];
-                                            type = parts[3].replace(")", "");
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
-                                            System.exit(0);
-                                        }
-
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
-
-                                        ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
-
-                                        keysMap.addPair(somePair);
-                                    }
-
-                                    //Use the map to locate the real aliases and form the Order by clause
-                                    for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
-                                        ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
-
-                                        String realAliasOfKey = "";
-                                        boolean aliasFound = false;
-                                        String fatherName = fatherOperatorNode.getOperatorName();
-                                        String order = "";
-
-                                        if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
-                                            order = "ASC";
-                                        }
-                                        else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
-                                            order = "DESC";
-                                        }
-                                        else{
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
-                                            System.exit(0);
-                                        }
-
-                                        for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
-                                            if(cP.getColumnType().equals(keyPair.getColumnType())){
-                                                if(cP.getColumnName().equals(keyPair.getColumnName())){
-                                                    aliasFound = true;
-                                                    realAliasOfKey = cP.getColumnName();
-                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                    break;
-                                                }
-                                                else{
-                                                    if(cP.getAltAliasPairs() != null){
-                                                        if(cP.getAltAliasPairs().size() > 0){
-                                                            for(StringParameter sP : cP.getAltAliasPairs()){
-                                                                if(sP.getParemeterType().equals(fatherName)){
-                                                                    if(sP.getValue().equals(keyPair.getColumnName())){
-                                                                        aliasFound = true;
-                                                                        realAliasOfKey = cP.getColumnName();
-                                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if(aliasFound == true){
-                                                                break;
-                                                            }
-
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if(aliasFound == false){
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
-                                            System.exit(0);
-                                        }
-
-                                        if(i == keysMap.getColumnAndTypeList().size() - 1){
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
-                                        }
-                                        else{
-                                            orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
-                                        }
-
-                                        //Add used column order by
-                                        currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
-
-                                    }
-
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
-                                    currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
-                                    currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
-
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-
-
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
-                            System.exit(0);
-                        }
-                    }
-                }
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
-
-                /*---Finalising outputTable---*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
-                MyTable outputTable = new MyTable();
-                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                outputTable.setIsAFile(false);
-
-                MyMap someMap = new MyMap();
-
-                if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
-                    updatedSchemaString = latestAncestorSchema;
-                }
-
-                updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
-                List<FieldSchema> newCols = new LinkedList<>();
-                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                for(ColumnTypePair p : pairsList){
-                    if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("INPUT__FILE__NAME")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("ROW__ID")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("rowid")){
-                        continue;
-                    }
-                    else if(p.getColumnName().contains("bucketid")){
-                        continue;
-                    }
-                    FieldSchema f = new FieldSchema();
-                    f.setName(p.getColumnName());
-                    f.setType(p.getColumnType());
-                    newCols.add(f);
-                }
-
-                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                outputTable.setAllCols(newCols);
-                outputTable.setHasPartitions(false);
-
-                currentOpQuery.setOutputTable(outputTable);
-                currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                /*---Finalize local part of Query---*/
-                currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                /*---Check if OpLink is to be created---*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
-                for(MyTable inputT : currentOpQuery.getInputTables()){
-                    boolean isRoot = false;
-                    for(MyTable rootInputT : inputTables){
-                        if(rootInputT.getTableName().equals(inputT.getTableName())){
-                            isRoot = true;
-                            break;
-                        }
-                    }
-                    if(isRoot == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Creating new OpLink...");
-                        OpLink operatorLink = new OpLink();
-                        operatorLink.setContainerName("c0");
-                        operatorLink.setFromTable("R_"+inputT.getTableName().toLowerCase()+"_0");
-                        operatorLink.setToTable("R_"+outputTable.getTableName().toLowerCase()+"_0");
-
-                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                        NumParameter nP = new NumParameter("part", 0);
-
-                        List<Parameter> opParams = new LinkedList<>();
-                        opParams.add(sP);
-                        opParams.add(nP);
-
-                        operatorLink.setParameters(opParams);
-                        opLinksList.add(operatorLink);
-                    }
-                }
-
-                /*----Adding Finished Query to List----*/
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
-                allQueries.add(currentOpQuery);
-
-
-                //TODO JOIN
-                /*---Moving to Child Operator---*/
-                List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
-                if(children != null){
-                    if(children.size() == 1){
-                        Operator<?> child = children.get(0);
-                        if(child instanceof SelectOperator){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->SEL connection!");
-
-                            /*----Begin a new Query----*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
-                            OperatorQuery opQuery = new OperatorQuery();
-                            opQuery.setDataBasePath(currentDatabasePath);
-                            opQuery.setLocalQueryString("");
-                            opQuery.setExaremeQueryString("");
-                            opQuery.addInputTable(currentOpQuery.getOutputTable());
-                            opQuery.setAssignedContainer("c0");
-                            opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                            opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
-
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
-
-                            OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
-
-                            goToChildOperator(childNode, currentOperatorNode, opQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName().toLowerCase(), latestAncestorTableName2, null);
-
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported child for ReduceSinkOperator!");
-                            System.exit(0);
-                        }
-                    }
-                    else{
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are NOT SIZE==1!");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are null");
-                    System.exit(0);
-                }
+                reduceSinkHasFatherSelect(currentOperatorNode, currentOpQuery, fatherOperatorNode, otherFatherNode, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2);
 
             }
             else{
@@ -4581,271 +2266,7 @@ public class QueryBuilder {
             if((fatherOperatorNode.getOperator() instanceof ReduceSinkOperator) && (otherFatherNode.getOperator() instanceof ReduceSinkOperator)){
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JoinOperator: "+currentOperatorNode.getOperatorName()+" has parents: "+fatherOperatorNode.getOperatorName()+" , "+otherFatherNode.getOperatorName());
 
-                String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
-
-                //TODO ADD KEY SEARCH AND OUTPUT SELECT COLUMNS
-                JoinOperator joinOp = (JoinOperator) currentOperatorNode.getOperator();
-                JoinDesc joinDesc = joinOp.getConf();
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing keys of Inner Join...");
-                Map<Byte, String> keys = joinDesc.getKeysString();
-                List<String> joinColumns = new LinkedList<>();
-                if (keys != null) {
-                     //TODO: HANDLE COLS WITH SAME NAME ON DIFFERENT TABLES
-
-                    for (Map.Entry<Byte, String> entry : keys.entrySet()) {
-                        //System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing keys of Inner Join...");
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: " + entry.getKey() + " : Value: " + entry.getValue());
-
-                        String[] parts = entry.getValue().split(" ");
-                        if(parts.length != 3){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Reading value info...Failed! Parts size: "+parts.length);
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts: "+parts);
-                            System.exit(0);
-                        }
-                        String columnName = parts[0];
-                        String columnType = "";
-                        if(parts[2].contains(")"))
-                            columnType = parts[2].replace(")", "");
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": ColumnType does not contain )");
-                            System.exit(0);
-                        }
-
-                        List<ColumnTypePair> allPairs = columnAndTypeMap.getColumnAndTypeList();
-
-                        //Located Value
-                        boolean valueLocated = false;
-                        String realValueName = "";
-                        for(ColumnTypePair p : allPairs){
-                            if(p.getColumnType().equals(columnType)) {
-                                if (p.getColumnName().equals(columnName)) { //Check for direct match
-                                    valueLocated = true;
-                                    realValueName = columnName;
-                                    joinColumns.add(columnName);
-
-                                    //Locate the father that last used the column
-                                    String lastFather = "";
-                                    boolean altAliasExists = false;
-
-                                    List<StringParameter> altAliases = p.getAltAliasPairs();
-                                    if (altAliases.size() > 0) {
-                                        for (StringParameter sP : altAliases) {
-                                            if (sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())) {
-                                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located Father of Used Column for Join Column - Father: " + fatherOperatorNode.getOperatorName());
-                                                lastFather = fatherOperatorNode.getOperatorName();
-                                                altAliasExists = true;
-                                                break;
-                                            } else if (sP.getParemeterType().equals(otherFatherNode.getOperatorName())) {
-                                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located Father of Used Column for Join Column - Father: " + otherFatherNode.getOperatorName());
-                                                lastFather = otherFatherNode.getOperatorName();
-                                                altAliasExists = true;
-                                                break;
-                                            }
-                                        }
-
-                                        if (altAliasExists == false) {
-                                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Can't locate add JOIN COLUMN TO USED COLUMNS because AltAlias and Previous Father Entry does not exist!1");
-                                            System.exit(0);
-                                        }
-
-                                        //Add JOIN USED Column
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding used column for JoinQuery - Alias: " + p.getColumnName() + " - TableName: " + lastFather);
-                                        currentOpQuery.addUsedColumn(p.getColumnName(), lastFather);
-
-                                    } else {
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Can't locate add JOIN COLUMN TO USED COLUMNS because AltAlias and Previous Father Entry does not exist!2");
-                                        System.exit(0);
-                                    }
-                                    break;
-                                } else {
-                                    List<StringParameter> altAliases = p.getAltAliasPairs();
-                                    if (altAliases != null) {
-                                        if (altAliases.size() > 0) {
-                                            for (StringParameter sP : altAliases) {
-                                                if (sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())) { //Check for possible match through father1
-                                                    if (sP.getValue().equals(columnName)) {
-                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located match through: " + fatherOperatorNode.getOperatorName());
-                                                        realValueName = p.getColumnName();
-                                                        valueLocated = true;
-                                                        joinColumns.add(columnName);
-                                                        break;
-                                                    }
-                                                } else if (sP.getParemeterType().equals(otherFatherNode.getOperatorName())) { //Check for possible match through father2
-                                                    if (sP.getValue().equals(columnName)) {
-                                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located match through: " + otherFatherNode.getOperatorName());
-                                                        realValueName = p.getColumnName();
-                                                        valueLocated = true;
-                                                        joinColumns.add(columnName);
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if(valueLocated == false){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Failed to locate the real alias of: "+columnName);
-                            System.exit(0);
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real alias of: "+columnName+" is: "+realValueName);
-                        }
-
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Join Keys are null!");
-                    System.exit(0);
-                }
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Now we will use keys to form the join expression...");
-
-                //Add Join col1 = col2 part of expression
-                currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" "+joinColumns.get(0)+" = "+joinColumns.get(1)+" "));
-                currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" "+joinColumns.get(0)+" = "+joinColumns.get(1)+" "));
-
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                /*---Moving to Child Operator---*/
-                List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
-                if(children != null) {
-                    if (children.size() == 1) {
-                        Operator<?> child = children.get(0);
-                        if (child instanceof SelectOperator) {
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->SELECT connection!");
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Current Query will be ending here with Select statement addition...");
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                            MyMap aMap = new MyMap();
-                            updatedSchemaString = extractColsFromTypeName(updatedSchemaString, aMap, updatedSchemaString, false);
-
-                            String selectString = "";
-                            List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                            for(int i = 0; i < pairs.size(); i++){
-                                if(i == pairs.size() - 1){
-                                    selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                                }
-                                else{
-                                    selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                                }
-                            }
-
-                            currentOpQuery.setLocalQueryString("select "+selectString+" "+currentOpQuery.getLocalQueryString());
-                            currentOpQuery.setExaremeQueryString("select "+selectString+" "+currentOpQuery.getExaremeQueryString());
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                            /*---Finalising outputTable---*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
-                            MyTable outputTable = new MyTable();
-                            outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                            outputTable.setIsAFile(false);
-
-                            MyMap someMap = new MyMap();
-                            updatedSchemaString = extractColsFromTypeName(updatedSchemaString, someMap, updatedSchemaString, false);
-
-                            List<FieldSchema> newCols = new LinkedList<>();
-                            List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                            for (ColumnTypePair p : pairsList) {
-                                FieldSchema f = new FieldSchema();
-                                f.setName(p.getColumnName());
-                                f.setType(p.getColumnType());
-                                newCols.add(f);
-                            }
-
-                            outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                            outputTable.setAllCols(newCols);
-                            outputTable.setHasPartitions(false);
-
-                            currentOpQuery.setOutputTable(outputTable);
-                            currentOpQuery.setExaremeOutputTableName("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                            /*---Finalize local part of Query---*/
-                            currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
-                            /*---Check if OpLink is to be created---*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
-                            for (MyTable inputT : currentOpQuery.getInputTables()) {
-                                boolean isRoot = false;
-                                for (MyTable rootInputT : inputTables) {
-                                    if (rootInputT.getTableName().equals(inputT.getTableName())) {
-                                        isRoot = true;
-                                        break;
-                                    }
-                                }
-                                if(isRoot == false){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Creating new OpLink...");
-                                    OpLink operatorLink = new OpLink();
-                                    operatorLink.setContainerName("c0");
-                                    operatorLink.setFromTable("R_" + inputT.getTableName().toLowerCase() + "_0");
-                                    operatorLink.setToTable("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                                    StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                    NumParameter nP = new NumParameter("part", 0);
-
-                                    List<Parameter> opParams = new LinkedList<>();
-                                    opParams.add(sP);
-                                    opParams.add(nP);
-
-                                    operatorLink.setParameters(opParams);
-                                    opLinksList.add(operatorLink);
-
-                                }
-                            }
-
-                            /*----Adding Finished Query to List----*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
-                            allQueries.add(currentOpQuery);
-
-                            /*----Begin a new Query----*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
-                            OperatorQuery opQuery = new OperatorQuery();
-                            opQuery.setDataBasePath(currentDatabasePath);
-                            opQuery.setLocalQueryString("");
-                            opQuery.setExaremeQueryString("");
-                            opQuery.addInputTable(currentOpQuery.getOutputTable());
-                            opQuery.setAssignedContainer("c0");
-                            opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                            opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
-
-                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, opQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
-
-
-                        }
-                        else if(child instanceof FilterOperator){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->FIL connection!");
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Moving to child operator...");
-
-                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
-
-                        }
-                        else if(child instanceof GroupByOperator){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->GBY connection!");
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Moving to child operator...");
-
-                            goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
-
-                        }
-                        else {
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for Join...");
-                            System.exit(0);
-                        }
-                    } else {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": has != 1 children");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Join Operator has NULL Children...");
-                    System.exit(0);
-                }
+                joinHasFatherReduceSinks(currentOperatorNode, currentOpQuery, fatherOperatorNode, otherFatherNode, latestAncestorTableName1, latestAncestorTableName2);
 
             }
             else{
@@ -4863,56 +2284,8 @@ public class QueryBuilder {
                     System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Father is a GroupByOperator...");
                 }
 
-                if(currentOperatorNode.getOperator().getColumnExprMap() == null){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Assume the schema of FatherOperator(Select)...");
+                limitHasFatherSelectGroup(currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2);
 
-                    LimitOperator limOp = (LimitOperator) currentOperatorNode.getOperator();
-                    LimitDesc limDesc = (LimitDesc) limOp.getConf();
-
-                    if(limDesc != null){
-                        int theLimit = limDesc.getLimit();
-
-                        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " limit "+theLimit);
-                        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " limit "+theLimit);
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                        List<Operator<?>> children = limOp.getChildOperators();
-                        if(children != null){
-                            if(children.size() == 1){
-                                Operator<?> child = children.get(0);
-                                if(child instanceof FileSinkOperator){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered LIM--->FS connection!");
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
-
-                                    OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
-
-                                    goToChildOperator(childNode, currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2, null);
-                                }
-                                else{
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for LimitOperator!");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children ARE NOT SIZE==1!");
-                                System.exit(0);
-                            }
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are NULL!");
-                            System.exit(0);
-                        }
-                    }
-                    else{
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": LimDesc is null!");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": LimitOperator with NON NULL ColumnExprMap! Unsupported yet!");
-                    System.exit(0);
-                }
             }
             else{
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported Type of Parent Operator for LimitOperator...");
@@ -4931,282 +2304,8 @@ public class QueryBuilder {
                 else{
                     System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Father is a SelectOperator...");
                 }
-                if(currentOperatorNode.getOperator().getColumnExprMap() == null){
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": FileSink has null columnExprMap! Assumming ancestor's schema...");
 
-                    if(currentOperatorNode.getOperator().getSchema() != null){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": We will use the currentSchema however to fill new Aliases for children...");
-                        MyMap ancestorMap = new MyMap();
-                        latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, ancestorMap, latestAncestorSchema, false);
-
-                        MyMap descendentMap = new MyMap();
-                        String descendentSchema = extractColsFromTypeName(currentOperatorNode.getOperator().getSchema().toString(), descendentMap, currentOperatorNode.getOperator().getSchema().toString(), true);
-
-                        if(ancestorMap.getColumnAndTypeList().size() != descendentMap.getColumnAndTypeList().size()){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Maps do not have equal size!");
-                            System.exit(0);
-                        }
-
-                        for(int i = 0; i < ancestorMap.getColumnAndTypeList().size(); i++){
-                            ColumnTypePair ancestorPair = ancestorMap.getColumnAndTypeList().get(i);
-                            ColumnTypePair descendentPair = descendentMap.getColumnAndTypeList().get(i);
-
-                            if(ancestorPair.getColumnType().equals(descendentPair.getColumnType())){
-                                for(ColumnTypePair p : columnAndTypeMap.getColumnAndTypeList()){
-                                    if(p.getColumnName().equals(ancestorPair.getColumnName())){
-                                        p.addAltAlias(currentOperatorNode.getOperatorName(), descendentPair.getColumnName());
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match found! - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
-                                    }
-                                }
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Possible match Pair does not have same Type - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
-                                System.exit(0);
-                            }
-                        }
-
-                    }
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
-                    if(currentOpQuery.getLocalQueryString().contains("select ") == false){
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
-                        MyMap aMap = new MyMap();
-                        String updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
-
-                        String selectString = "";
-                        List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
-                        for(int i = 0; i < pairs.size(); i++){
-                            if(i == pairs.size() - 1){
-                                selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
-                            }
-                            else{
-                                selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
-                            }
-
-                            //Attempt to add used column if not existing
-                            currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
-                        }
-
-                        currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
-                        currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
-
-                    }
-
-                    List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
-                    if(children != null){
-                        if((children.size() == 1) || (children.size() == 2)){
-                            Operator<?> child = null;
-                            boolean childFound = false;
-                            if(children.size() == 2){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current FileSink has 2 Children! Undefined behaviour! Seeking TableScan child only! Check this!");
-                                for(Operator<?> someChild : children){
-                                    if(someChild.getOperatorId().contains("TS_")){
-                                        child = someChild;
-                                        childFound = true;
-                                    }
-                                    else{
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": The other Child: "+someChild.getOperatorId());
-                                    }
-                                }
-
-                                if(childFound == false){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Non TableScanOperator child exists! Error");
-                                    System.exit(0);
-                                }
-                            }
-                            else{
-                                child = children.get(0);
-                            }
-
-                            if(child instanceof ListSinkOperator){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered FS--->OP connection!");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
-
-                                OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
-
-                                goToChildOperator(childNode, currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2, null);
-                            }
-                            else if(child instanceof TableScanOperator){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered FS--->TS connection!");
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current query will be ending here!");
-
-                                /*---Finalising outputTable---*/
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
-                                MyTable outputTable = new MyTable();
-                                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                                outputTable.setIsAFile(false);
-
-                                MyMap someMap = new MyMap();
-                                String updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, someMap, latestAncestorSchema, false);
-
-                                List<FieldSchema> newCols = new LinkedList<>();
-                                List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                                for (ColumnTypePair p : pairsList) {
-                                    FieldSchema f = new FieldSchema();
-                                    f.setName(p.getColumnName());
-                                    f.setType(p.getColumnType());
-                                    newCols.add(f);
-                                }
-
-                                outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                                outputTable.setAllCols(newCols);
-                                outputTable.setHasPartitions(false);
-
-                                currentOpQuery.setOutputTable(outputTable);
-                                currentOpQuery.setExaremeOutputTableName("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                                /*---Finalize local part of Query---*/
-                                currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
-
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
-                                /*---Check if OpLink is to be created---*/
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
-                                for (MyTable inputT : currentOpQuery.getInputTables()) {
-                                    boolean isRoot = false;
-                                    for (MyTable rootInputT : inputTables) {
-                                        if (rootInputT.getTableName().equals(inputT.getTableName())) {
-                                            isRoot = true;
-                                            break;
-                                        }
-                                    }
-                                    if(isRoot == false){
-                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Creating new OpLink...");
-                                        OpLink operatorLink = new OpLink();
-                                        operatorLink.setContainerName("c0");
-                                        operatorLink.setFromTable("R_" + inputT.getTableName().toLowerCase() + "_0");
-                                        operatorLink.setToTable("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                                        StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                        NumParameter nP = new NumParameter("part", 0);
-
-                                        List<Parameter> opParams = new LinkedList<>();
-                                        opParams.add(sP);
-                                        opParams.add(nP);
-
-                                        operatorLink.setParameters(opParams);
-                                        opLinksList.add(operatorLink);
-
-
-                                    }
-                                }
-
-                                /*----Adding Finished Query to List----*/
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
-                                allQueries.add(currentOpQuery);
-
-                                /*----Begin a new Query----*/
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
-                                OperatorQuery opQuery = new OperatorQuery();
-                                opQuery.setDataBasePath(currentDatabasePath);
-                                opQuery.setLocalQueryString("");
-                                opQuery.setExaremeQueryString("");
-                                opQuery.addInputTable(currentOpQuery.getOutputTable());
-                                opQuery.setAssignedContainer("c0");
-                                opQuery.setLocalQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                opQuery.setExaremeQueryString(" from "+currentOpQuery.getOutputTable().getTableName().toLowerCase());
-
-                                //Add used columns to new Query because they will be needed by TableScan
-                                for(FieldSchema f : newCols){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"USED Column for New Query: "+f.getName());
-                                    opQuery.addUsedColumn(f.getName(), currentOpQuery.getOutputTable().getTableName().toLowerCase());
-                                }
-
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
-
-                                goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, opQuery, updatedSchemaString, opQuery.getInputTables().get(0).getTableName().toLowerCase(), latestAncestorTableName2, null);
-
-                            }
-                            else{
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for FS!");
-                                System.exit(0);
-                            }
-                        }
-                        else if(children.size() == 0){
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Reached LEAF FS!!! We did it!");
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current query will be ending here!");
-
-                            /*---Finalising outputTable---*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
-                            MyTable outputTable = new MyTable();
-                            outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                            outputTable.setIsAFile(false);
-
-                            MyMap someMap = new MyMap();
-                            String updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, someMap, latestAncestorSchema, false);
-
-                            List<FieldSchema> newCols = new LinkedList<>();
-                            List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                            for (ColumnTypePair p : pairsList) {
-                                FieldSchema f = new FieldSchema();
-                                f.setName(p.getColumnName());
-                                f.setType(p.getColumnType());
-                                newCols.add(f);
-                            }
-
-                            outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                            outputTable.setAllCols(newCols);
-                            outputTable.setHasPartitions(false);
-
-                            currentOpQuery.setOutputTable(outputTable);
-                            currentOpQuery.setExaremeOutputTableName("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                            /*---Finalize local part of Query---*/
-                            currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
-
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
-                                /*---Check if OpLink is to be created---*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
-                            for (MyTable inputT : currentOpQuery.getInputTables()) {
-                                boolean isRoot = false;
-                                for (MyTable rootInputT : inputTables) {
-                                    if (rootInputT.getTableName().equals(inputT.getTableName())) {
-                                        isRoot = true;
-                                        break;
-                                    }
-                                }
-                                if(isRoot == false){
-                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Creating new OpLink...");
-                                    OpLink operatorLink = new OpLink();
-                                    operatorLink.setContainerName("c0");
-                                    operatorLink.setFromTable("R_" + inputT.getTableName().toLowerCase() + "_0");
-                                    operatorLink.setToTable("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                                    StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                    NumParameter nP = new NumParameter("part", 0);
-
-                                    List<Parameter> opParams = new LinkedList<>();
-                                    opParams.add(sP);
-                                    opParams.add(nP);
-
-                                    operatorLink.setParameters(opParams);
-                                    opLinksList.add(operatorLink);
-
-                                }
-                            }
-
-                                /*----Adding Finished Query to List----*/
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
-                            allQueries.add(currentOpQuery);
-                        }
-                        else{
-                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are SIZE != 1!");
-                            System.exit(0);
-                        }
-                    }
-                    else{
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are NULL!");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": FS with non NULL columnExprMap! Unsupported for now!");
-                    System.exit(0);
-                }
+                fileSinkHasFatherLimitGroupSelect(currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2);
             }
             else{
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported Type of Parent Operator for FileSinkOperator...");
@@ -5217,89 +2316,7 @@ public class QueryBuilder {
             System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Operator is a ListSinkOperator...");
             if(fatherOperatorNode.getOperator() instanceof FileSinkOperator){
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is a FileSinkOperator...");
-                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Check if ColumnExprMap is NULL...");
-                if(currentOperatorNode.getOperator().getColumnExprMap() == null) {
-
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Check if LEAF...");
-                    List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
-                    if ((children == null) || (children.size() == 0)) {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Reached a Leaf!");
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Current Query will be ending here...");
-
-                        /*---Finalising outputTable---*/
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
-                        MyTable outputTable = new MyTable();
-                        outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
-                        outputTable.setIsAFile(false);
-
-                        MyMap someMap = new MyMap();
-                        latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, someMap, latestAncestorSchema, false);
-
-                        List<FieldSchema> newCols = new LinkedList<>();
-                        List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
-                        for (ColumnTypePair p : pairsList) {
-                            FieldSchema f = new FieldSchema();
-                            f.setName(p.getColumnName());
-                            f.setType(p.getColumnType());
-                            newCols.add(f);
-                        }
-
-                        outputTable.setTableName(currentOperatorNode.getOperator().getOperatorId().toLowerCase());
-                        outputTable.setAllCols(newCols);
-                        outputTable.setHasPartitions(false);
-
-                        currentOpQuery.setOutputTable(outputTable);
-                        currentOpQuery.setExaremeOutputTableName("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                        /*---Finalize local part of Query---*/
-                        currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
-
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
-
-                        /*---Check if OpLink is to be created---*/
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
-                        for (MyTable inputT : currentOpQuery.getInputTables()) {
-                            boolean isRoot = false;
-                            for (MyTable rootInputT : inputTables) {
-                                if (rootInputT.getTableName().equals(inputT.getTableName())) {
-                                    isRoot = true;
-                                    break;
-                                }
-                            }
-                            if(isRoot == false){
-                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Creating new OpLink...");
-                                OpLink operatorLink = new OpLink();
-                                operatorLink.setContainerName("c0");
-                                operatorLink.setFromTable("R_" + inputT.getTableName().toLowerCase() + "_0");
-                                operatorLink.setToTable("R_" + outputTable.getTableName().toLowerCase() + "_0");
-
-                                StringParameter sP = new StringParameter("table", inputT.getTableName());
-                                NumParameter nP = new NumParameter("part", 0);
-
-                                List<Parameter> opParams = new LinkedList<>();
-                                opParams.add(sP);
-                                opParams.add(nP);
-
-                                operatorLink.setParameters(opParams);
-                                opLinksList.add(operatorLink);
-
-                            }
-                        }
-
-                        /*----Adding Finished Query to List----*/
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
-                        allQueries.add(currentOpQuery);
-
-                    } else {
-                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": ListSinkOperator is not LEAF! Unsupported!");
-                        System.exit(0);
-                    }
-                }
-                else{
-                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": ListSink with Non Null ColumnExprMap!!");
-                    System.exit(0);
-                }
+                listSinkHasFatherFileSink(currentOperatorNode, currentOpQuery, latestAncestorSchema);
             }
             else{
                 System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported Type of Parent Operator for FileSinkOperator...");
@@ -5313,6 +2330,1492 @@ public class QueryBuilder {
 
         return;
     }
+
+    public void reduceSinkHasFatherTableScan(OperatorNode currentOperatorNode, OperatorNode fatherOperatorNode, OperatorNode otherFatherNode, OperatorQuery currentOpQuery, String latestAncestorSchema, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing method: reduceSinkHasFatherTableScan");
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if Father is Root...");
+        if((fatherOperatorNode.getOperator().getParentOperators() == null) || (fatherOperatorNode.getOperator().getParentOperators().size() == 0)){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is root...OK!");
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Father is not ROOT! Error!");
+            System.exit(0);
+        }
+
+        String updatedSchemaString = "";
+
+        if(currentOperatorNode.getOperator().getSchema().toString().equals("()") || (currentOperatorNode.getOperator().getSchema() == null)){
+            if(currentOperatorNode.getOperator().getColumnExprMap() != null){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": RowSchema is empty! We will build Schema from ColumnExprMap...");
+
+                updatedSchemaString = buildSchemaFromColumnExprMap(currentOperatorNode, latestAncestorSchema);
+
+            }
+            else{
+                updatedSchemaString = latestAncestorSchema;
+            }
+        }
+        else {
+            if(currentOperatorNode.getOperator().getSchema() == null){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
+                updatedSchemaString = latestAncestorSchema;
+            }
+            else {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
+                updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+            }
+        }
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
+        if(currentOpQuery.getLocalQueryString().contains("select ") == false){
+            updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, updatedSchemaString, currentOpQuery);
+        }
+
+        /*---Add possible Order By Keys---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
+        discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
+
+        /*---Finalising outputTable---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
+
+        MyTable outputTable = new MyTable();
+        outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+        outputTable.setIsAFile(false);
+        List<FieldSchema> newCols = new LinkedList<>();
+
+        updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+        /*---Finalize local part of Query---*/
+        currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+        /*---Check if OpLink is to be created---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
+        checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+        /*----Adding Finished Query to List----*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
+        allQueries.add(currentOpQuery);
+
+
+        //TODO JOIN
+        /*---Moving to Child Operator---*/
+        List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+        if(children != null){
+            if(children.size() == 1){
+                Operator<?> child = children.get(0);
+                if(child instanceof JoinOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->JOIN connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if JOIN_POINT: "+child.getOperatorId()+" exists...");
+
+                    if(joinPointList.size() > 0){
+                        boolean joinPExists = false;
+                        for(JoinPoint jP : joinPointList){
+                            if(jP.getId().equals(child.getOperatorId())){
+                                joinPExists = true;
+
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" Exists! Removing it from List!");
+
+                                OperatorQuery associatedQuery = jP.getAssociatedOpQuery();
+                                String otherParent = jP.getCreatedById();
+                                latestAncestorTableName2 = jP.getLatestAncestorTableName();
+                                OperatorNode secondFather = jP.getOtherFatherNode();
+                                String joinPhrase = jP.getJoinPhrase();
+
+                                joinPointList.remove(jP);
+
+                                associatedQuery.addInputTable(currentOpQuery.getOutputTable());
+
+                                associatedQuery.setLocalQueryString(associatedQuery.getLocalQueryString().concat(" "+joinPhrase+" "+currentOpQuery.getOutputTable().getTableName().toLowerCase()+" on "));
+                                associatedQuery.setExaremeQueryString(associatedQuery.getExaremeQueryString().concat(" "+joinPhrase+" "+currentOpQuery.getOutputTable().getTableName().toLowerCase()+" on "));
+
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                                OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                                goToChildOperator(childNode, currentOperatorNode, associatedQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName().toLowerCase(), latestAncestorTableName2, secondFather);
+
+                                return;
+                            }
+                        }
+
+                        if(joinPExists == false){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" does not exist! We will create it and return!");
+
+                            createJoinPoint(currentOperatorNode, currentOpQuery, child, latestAncestorTableName1);
+
+                            return;
+                        }
+                    }
+                    else{ //No JoinPoint Exists
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": JOIN_POINT: "+child.getOperatorId()+" does not exist! We will create it and return!");
+
+                        createJoinPoint(currentOperatorNode, currentOpQuery, child, latestAncestorTableName1);
+
+                        return;
+                    }
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported child for ReduceSinkOperator!");
+                    System.exit(0);
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are NOT SIZE==1!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are null");
+            System.exit(0);
+        }
+
+    }
+
+    public void reduceSinkHasFatherFileSink(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, OperatorNode fatherOperatorNode, OperatorNode otherFatherNode, String latestAncestorSchema, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        String updatedSchemaString = "";
+
+        if(currentOperatorNode.getOperator().getParentOperators().get(0) instanceof TableScanOperator){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": True father was a TableScanOperator and was ommited! Use ancestral schema to add Columns and transform current Schema!");
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Ancestral Schema: "+latestAncestorSchema);
+
+            MyMap ancestorMap = new MyMap();
+            latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, ancestorMap, latestAncestorSchema, false);
+
+            MyMap descendentMap = new MyMap();
+            String descendentSchema = extractColsFromTypeName(currentOperatorNode.getOperator().getSchema().toString(), descendentMap, currentOperatorNode.getOperator().getSchema().toString(), true);
+
+            if(ancestorMap.getColumnAndTypeList().size() != descendentMap.getColumnAndTypeList().size()){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Maps do not have equal size!");
+                System.exit(0);
+            }
+
+            for(int i = 0; i < ancestorMap.getColumnAndTypeList().size(); i++){
+                ColumnTypePair ancestorPair = ancestorMap.getColumnAndTypeList().get(i);
+                ColumnTypePair descendentPair = descendentMap.getColumnAndTypeList().get(i);
+
+                if(ancestorPair.getColumnType().equals(descendentPair.getColumnType())){
+                    for(ColumnTypePair p : columnAndTypeMap.getColumnAndTypeList()){
+                        if(p.getColumnName().equals(ancestorPair.getColumnName())){
+                            p.addAltAlias(currentOperatorNode.getOperatorName(), descendentPair.getColumnName());
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match found! - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                        }
+                    }
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Possible match Pair does not have same Type - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                    System.exit(0);
+                }
+            }
+
+            updatedSchemaString = latestAncestorSchema;
+        }
+        else {
+
+            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
+            updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+
+        }
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
+        if(currentOpQuery.getLocalQueryString().contains("select ") == false){
+            updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
+        }
+
+        /*---Add possible Order By Keys---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
+        discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
+
+        /*---Finalising outputTable---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
+        MyTable outputTable = new MyTable();
+        outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+        outputTable.setIsAFile(false);
+        List<FieldSchema> newCols = new LinkedList<>();
+
+        if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
+            updatedSchemaString = latestAncestorSchema;
+        }
+
+        updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+        /*---Finalize local part of Query---*/
+        currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+        /*---Check if OpLink is to be created---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
+        checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+        /*----Adding Finished Query to List----*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
+        allQueries.add(currentOpQuery);
+
+        /*----Begin a new Query----*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
+        OperatorQuery opQuery = new OperatorQuery();
+        initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
+
+        //TODO: CHECK OP_LINKS AND GOTOPARENTNEXT
+
+        /*---Moving to Child Operator---*/
+        List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+        if(children != null){
+            if(children.size() == 1){
+                Operator<?> child = children.get(0);
+                if(child instanceof GroupByOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->GBY connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                    OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                    goToChildOperator(childNode, currentOperatorNode, opQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName(), latestAncestorTableName2, null);
+                }
+                else if(child instanceof SelectOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->SEL connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                    OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                    goToChildOperator(childNode, currentOperatorNode, opQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName(), latestAncestorTableName2, null);
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported child for ReduceSinkOperator!");
+                    System.exit(0);
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are NOT SIZE==1!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are null");
+            System.exit(0);
+        }
+
+    }
+
+    public void reduceSinkHasFatherSelect(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, OperatorNode fatherOperatorNode, OperatorNode otherFatherNode, String latestAncestorSchema, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        String updatedSchemaString = "";
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing method: reduceSinkHasFatherSelect");
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if GrandFather is Root...");
+        OperatorNode grandFatherOperatorNode = exaremeGraph.getOperatorNodeByName(fatherOperatorNode.getOperator().getParentOperators().get(0).getOperatorId());
+
+        if((grandFatherOperatorNode.getOperator().getParentOperators() == null) || (grandFatherOperatorNode.getOperator().getParentOperators().size() == 0)){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": GrandFather is root...TableScan!");
+
+            if(currentOperatorNode.getOperator().getSchema().toString().equals("()") || (currentOperatorNode.getOperator().getSchema() == null)){
+                if(currentOperatorNode.getOperator().getColumnExprMap() != null){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": RowSchema is empty! We will build Schema from ColumnExprMap...");
+
+                    updatedSchemaString = buildSchemaFromColumnExprMap(currentOperatorNode, grandFatherOperatorNode.getOperator().getSchema().toString());
+
+                }
+                else{
+                    updatedSchemaString = latestAncestorSchema;
+                }
+            }
+            else {
+                if(currentOperatorNode.getOperator().getSchema() == null){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
+                    updatedSchemaString = latestAncestorSchema;
+                }
+                else {
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
+                    updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+                }
+            }
+        }
+        else{
+            if(currentOperatorNode.getOperator().getSchema() == null){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
+                updatedSchemaString = latestAncestorSchema;
+            }
+            else {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding new possible Aliases...");
+                updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+            }
+        }
+
+        /*---Add possible Order By Keys---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if ORDER BY exists in this RS...");
+        discoverOrderByKeys(currentOperatorNode, fatherOperatorNode, currentOpQuery, latestAncestorTableName1);
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current Query will be ending here...");
+
+        /*---Finalising outputTable---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finalising OutputTable...");
+        MyTable outputTable = new MyTable();
+        outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+        outputTable.setIsAFile(false);
+        List<FieldSchema> newCols = new LinkedList<>();
+
+        if(currentOperatorNode.getOperator().getSchema().toString().equals("()")){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": RowSchema is empty! Assuming older Schema!");
+            updatedSchemaString = latestAncestorSchema;
+        }
+
+        updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+        /*---Finalize local part of Query---*/
+        currentOpQuery.setLocalQueryString("create table "+currentOperatorNode.getOperator().getOperatorId().toLowerCase()+" as "+currentOpQuery.getLocalQueryString());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+        /*---Check if OpLink is to be created---*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if OpLink can be created...");
+        checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+        /*----Adding Finished Query to List----*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Adding OperatorQuery to QueryList...");
+        allQueries.add(currentOpQuery);
+
+        //TODO JOIN
+        /*---Moving to Child Operator---*/
+        List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+        if(children != null){
+            if(children.size() == 1){
+                Operator<?> child = children.get(0);
+                if(child instanceof SelectOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered RS--->SEL connection!");
+
+                    /*----Begin a new Query----*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
+                    OperatorQuery opQuery = new OperatorQuery();
+                    initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
+
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
+
+
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                    OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                    goToChildOperator(childNode, currentOperatorNode, opQuery, updatedSchemaString, currentOpQuery.getOutputTable().getTableName().toLowerCase(), latestAncestorTableName2, null);
+
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported child for ReduceSinkOperator!");
+                    System.exit(0);
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are NOT SIZE==1!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": children are null");
+            System.exit(0);
+        }
+
+
+    }
+
+    public void joinHasFatherReduceSinks(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, OperatorNode fatherOperatorNode, OperatorNode otherFatherNode, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        String updatedSchemaString = addNewPossibleAliases(currentOperatorNode, fatherOperatorNode, otherFatherNode);
+
+        //TODO ADD KEY SEARCH AND OUTPUT SELECT COLUMNS
+        List<String> joinColumns = new LinkedList<>();
+
+        handleJoinKeys(currentOperatorNode, currentOpQuery, fatherOperatorNode, otherFatherNode, joinColumns);
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Now we will use keys to form the join expression...");
+
+        //Add Join col1 = col2 part of expression
+        currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" "+joinColumns.get(0)+" = "+joinColumns.get(1)+" "));
+        currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" "+joinColumns.get(0)+" = "+joinColumns.get(1)+" "));
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+        /*---Moving to Child Operator---*/
+        List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+        if(children != null) {
+            if (children.size() == 1) {
+                Operator<?> child = children.get(0);
+                if (child instanceof SelectOperator) {
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->SELECT connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Current Query will be ending here with Select statement addition...");
+
+                    /*---Add select statement to Query---*/
+                    updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, updatedSchemaString, currentOpQuery);
+
+                    /*---Finalising outputTable---*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
+                    MyTable outputTable = new MyTable();
+                    outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+                    outputTable.setIsAFile(false);
+                    List<FieldSchema> newCols = new LinkedList<>();
+
+                    updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, updatedSchemaString, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+                    /*---Finalize local part of Query---*/
+                    currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
+
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
+
+                    /*---Check if OpLink is to be created---*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
+                    checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+                    /*----Adding Finished Query to List----*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
+                    allQueries.add(currentOpQuery);
+
+                    /*----Begin a new Query----*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
+                    OperatorQuery opQuery = new OperatorQuery();
+                    initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
+
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
+
+                    goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, opQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+
+
+                }
+                else if(child instanceof FilterOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->FIL connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Moving to child operator...");
+
+                    goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+
+                }
+                else if(child instanceof GroupByOperator){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Discovered JOIN--->GBY connection!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Moving to child operator...");
+
+                    goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, currentOpQuery, updatedSchemaString, latestAncestorTableName1, latestAncestorTableName2, null);
+
+                }
+                else {
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for Join...");
+                    System.exit(0);
+                }
+            } else {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": has != 1 children");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Join Operator has NULL Children...");
+            System.exit(0);
+        }
+
+    }
+
+    public String buildSchemaFromColumnExprMap(OperatorNode currentOperatorNode, String olderSchema){
+
+        MyMap someMap = new MyMap();
+
+        String pastSchema = extractColsFromTypeName(olderSchema, someMap, olderSchema, false);
+
+        List<FieldSchema> newCols = new LinkedList<>();
+        List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
+        for(ColumnTypePair p : pairsList){
+            if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
+                continue;
+            }
+            else if(p.getColumnName().contains("INPUT__FILE__NAME")){
+                continue;
+            }
+            else if(p.getColumnName().contains("ROW__ID")){
+                continue;
+            }
+            else if(p.getColumnName().contains("rowid")){
+                continue;
+            }
+            else if(p.getColumnName().contains("bucketid")){
+                continue;
+            }
+            FieldSchema f = new FieldSchema();
+            f.setName(p.getColumnName());
+            f.setType(p.getColumnType());
+            newCols.add(f);
+        }
+
+        String updatedSchemaString = "(";
+        int i = 0;
+        for(Map.Entry<String, ExprNodeDesc> entry : currentOperatorNode.getOperator().getColumnExprMap().entrySet()){
+            String newColName = entry.getKey();
+            String pastName = entry.getValue().getCols().get(0);
+
+            boolean matchFound = false;
+            String nameForSchema = "";
+            String typeForSchema = "";
+
+            for(ColumnTypePair oldPair : someMap.getColumnAndTypeList()){ //Search all the parent operator Map
+                if(oldPair.getColumnName().equals(pastName)){
+                    for(ColumnTypePair mapPair : columnAndTypeMap.getColumnAndTypeList()){ //Search all the total map
+                        if(mapPair.getColumnType().equals(oldPair.getColumnType())){
+                            if(mapPair.getColumnName().equals(oldPair.getColumnName())){
+                                mapPair.addAltAlias(currentOperatorNode.getOperatorName(), newColName);
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" - was added in map as altAlias for: "+mapPair.getColumnName());
+                                matchFound = true;
+                                nameForSchema = mapPair.getColumnName();
+                                typeForSchema = mapPair.getColumnType();
+                                break;
+                            }
+                        }
+                    }
+
+                    if(matchFound == true) break;
+                }
+
+            }
+
+            if(matchFound == false){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": NewColName: "+newColName+" has no match!");
+                System.exit(0);
+            }
+
+            if(i == currentOperatorNode.getOperator().getColumnExprMap().entrySet().size() - 1){
+                updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ")");
+            }
+            else{
+                updatedSchemaString = updatedSchemaString.concat(nameForSchema + ": " + typeForSchema + ",");
+            }
+
+            i++;
+        }
+
+        return updatedSchemaString;
+
+    }
+
+    public void limitHasFatherSelectGroup(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String latestAncestorSchema, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing method: limitHasFatherSelectGroup");
+
+        if(currentOperatorNode.getOperator().getColumnExprMap() == null){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Assume the schema of FatherOperator(Select)...");
+
+            LimitOperator limOp = (LimitOperator) currentOperatorNode.getOperator();
+            LimitDesc limDesc = (LimitDesc) limOp.getConf();
+
+            if(limDesc != null){
+                int theLimit = limDesc.getLimit();
+
+                currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " limit "+theLimit);
+                currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " limit "+theLimit);
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+                List<Operator<?>> children = limOp.getChildOperators();
+                if(children != null){
+                    if(children.size() == 1){
+                        Operator<?> child = children.get(0);
+                        if(child instanceof FileSinkOperator){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered LIM--->FS connection!");
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                            OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                            goToChildOperator(childNode, currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2, null);
+                        }
+                        else{
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for LimitOperator!");
+                            System.exit(0);
+                        }
+                    }
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children ARE NOT SIZE==1!");
+                        System.exit(0);
+                    }
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are NULL!");
+                    System.exit(0);
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": LimDesc is null!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": LimitOperator with NON NULL ColumnExprMap! Unsupported yet!");
+            System.exit(0);
+        }
+
+    }
+
+    public void createJoinPoint(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, Operator<?> child, String latestAncestorTableName1){
+
+        /*----Begin a new Query----*/
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
+        OperatorQuery opQuery = new OperatorQuery();
+        initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+        JoinOperator joinOp = (JoinOperator) child;
+        JoinDesc joinDesc = joinOp.getConf();
+
+        JoinCondDesc[] joinCondDescs = joinDesc.getConds();
+        if(joinCondDescs.length > 1){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": More than 1 JoinCondDesc! Error!");
+            System.exit(0);
+        }
+
+        String joinPhrase = "";
+        if(joinCondDescs[0].getType() == 0){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=0 - JoinString: "+joinCondDescs[0].getJoinCondString());
+            joinPhrase = " inner join ";
+        }
+        else if(joinCondDescs[0].getType() == 1){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=1 - JoinString: "+joinCondDescs[0].getJoinCondString());
+            joinPhrase = " left join ";
+        }
+        else if(joinCondDescs[0].getType() == 2){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=2 - JoinString: "+joinCondDescs[0].getJoinCondString());
+            joinPhrase = " right join ";
+        }
+        else if(joinCondDescs[0].getType() == 3){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Type=3 - JoinString: "+joinCondDescs[0].getJoinCondString());
+            joinPhrase = " full outer join ";
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": UNSUPPORTED JOIN TYPE! JoinString: "+joinCondDescs[0].getJoinCondString());
+            System.exit(0);
+            //joinPhrase = " full outer join ";
+        }
+
+        JoinPoint joinP = new JoinPoint(child.getOperatorId(), currentOperatorNode.getOperatorName(), opQuery, latestAncestorTableName1, currentOperatorNode, joinPhrase);
+
+        joinPointList.add(joinP);
+
+    }
+
+    public void fileSinkHasFatherLimitGroupSelect(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String latestAncestorSchema, String latestAncestorTableName1, String latestAncestorTableName2){
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing method: fileSinkHasFatherLimitGroupSelect");
+
+        if(currentOperatorNode.getOperator().getColumnExprMap() == null){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": FileSink has null columnExprMap! Assumming ancestor's schema...");
+
+            if(currentOperatorNode.getOperator().getSchema() != null){
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": We will use the currentSchema however to fill new Aliases for children...");
+                useSchemaToFillAliases(currentOperatorNode, latestAncestorSchema);
+
+            }
+
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Checking if current Query contains Select statement...");
+            if(currentOpQuery.getLocalQueryString().contains("select ") == false){
+                String updatedSchemaString = addSelectStatementToQuery(currentOperatorNode, latestAncestorSchema, currentOpQuery);
+            }
+
+            List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+            if(children != null){
+                if((children.size() == 1) || (children.size() == 2)){
+                    Operator<?> child = null;
+                    boolean childFound = false;
+                    if(children.size() == 2){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current FileSink has 2 Children! Undefined behaviour! Seeking TableScan child only! Check this!");
+                        for(Operator<?> someChild : children){
+                            if(someChild.getOperatorId().contains("TS_")){
+                                child = someChild;
+                                childFound = true;
+                            }
+                            else{
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": The other Child: "+someChild.getOperatorId());
+                            }
+                        }
+
+                        if(childFound == false){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Non TableScanOperator child exists! Error");
+                            System.exit(0);
+                        }
+                    }
+                    else{
+                        child = children.get(0);
+                    }
+
+                    if(child instanceof ListSinkOperator){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered FS--->OP connection!");
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Moving to child operator...");
+
+                        OperatorNode childNode = exaremeGraph.getOperatorNodeByName(child.getOperatorId());
+
+                        goToChildOperator(childNode, currentOperatorNode, currentOpQuery, latestAncestorSchema, latestAncestorTableName1, latestAncestorTableName2, null);
+                    }
+                    else if(child instanceof TableScanOperator){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Discovered FS--->TS connection!");
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current query will be ending here!");
+
+                        /*---Finalising outputTable---*/
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
+                        MyTable outputTable = new MyTable();
+                        outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+                        outputTable.setIsAFile(false);
+                        List<FieldSchema> newCols = new LinkedList<>();
+
+                        String updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, latestAncestorSchema, outputTable.getTableName().toLowerCase(), outputTable, newCols);
+
+                        /*---Finalize local part of Query---*/
+                        currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
+
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
+
+                        /*---Check if OpLink is to be created---*/
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
+                        checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+                        /*----Adding Finished Query to List----*/
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
+                        allQueries.add(currentOpQuery);
+
+                        /*----Begin a new Query----*/
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Beginning a New Query...");
+                        OperatorQuery opQuery = new OperatorQuery();
+                        initialiseNewQuery(currentOpQuery, opQuery, currentOpQuery.getOutputTable());
+
+                        //Add used columns to new Query because they will be needed by TableScan
+                        for(FieldSchema f : newCols){
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"USED Column for New Query: "+f.getName());
+                            opQuery.addUsedColumn(f.getName(), currentOpQuery.getOutputTable().getTableName().toLowerCase());
+                        }
+
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+opQuery.getLocalQueryString()+"]");
+
+                        goToChildOperator(exaremeGraph.getOperatorNodeByName(child.getOperatorId()), currentOperatorNode, opQuery, updatedSchemaString, opQuery.getInputTables().get(0).getTableName().toLowerCase(), latestAncestorTableName2, null);
+
+                    }
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unsupported type of Child for FS!");
+                        System.exit(0);
+                    }
+                }
+                else if(children.size() == 0){
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Reached LEAF FS!!! We did it!");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Current query will be ending here!");
+
+                    /*---Finalising outputTable---*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
+                    MyTable outputTable = new MyTable();
+                    outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+                    outputTable.setIsAFile(false);
+                    List<FieldSchema> newCols = new LinkedList<>();
+
+                    String updatedSchemaString = finaliseOutputTable(currentOperatorNode, currentOpQuery, latestAncestorSchema, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+                            /*---Finalize local part of Query---*/
+                    currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
+
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
+
+                    /*---Check if OpLink is to be created---*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
+                    checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+                    /*----Adding Finished Query to List----*/
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
+                    allQueries.add(currentOpQuery);
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are SIZE != 1!");
+                    System.exit(0);
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Children are NULL!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": FS with non NULL columnExprMap! Unsupported for now!");
+            System.exit(0);
+        }
+    }
+
+    public void listSinkHasFatherFileSink(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String latestAncestorSchema){
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing method: listSinkHasFatherFileSink");
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Check if ColumnExprMap is NULL...");
+        if(currentOperatorNode.getOperator().getColumnExprMap() == null) {
+
+            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Check if LEAF...");
+            List<Operator<?>> children = currentOperatorNode.getOperator().getChildOperators();
+            if ((children == null) || (children.size() == 0)) {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Reached a Leaf!");
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Current Query will be ending here...");
+
+                /*---Finalising outputTable---*/
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Finalising OutputTable...");
+                MyTable outputTable = new MyTable();
+                outputTable.setBelongingDatabaseName(currentOpQuery.getInputTables().get(0).getBelongingDataBaseName());
+                outputTable.setIsAFile(false);
+                List<FieldSchema> newCols = new LinkedList<>();
+
+                latestAncestorSchema = finaliseOutputTable(currentOperatorNode, currentOpQuery, latestAncestorSchema, currentOperatorNode.getOperator().getOperatorId().toLowerCase(), outputTable, newCols);
+
+                /*---Finalize local part of Query---*/
+                currentOpQuery.setLocalQueryString("create table " + currentOperatorNode.getOperator().getOperatorId().toLowerCase() + " as " + currentOpQuery.getLocalQueryString());
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Query is currently: [" + currentOpQuery.getLocalQueryString() + "]");
+
+                /*---Check if OpLink is to be created---*/
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Checking if OpLink can be created...");
+                checkForPossibleOpLinks(currentOperatorNode,  currentOpQuery, outputTable);
+
+                /*----Adding Finished Query to List----*/
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Adding OperatorQuery to QueryList...");
+                allQueries.add(currentOpQuery);
+
+            } else {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": ListSinkOperator is not LEAF! Unsupported!");
+                System.exit(0);
+            }
+        }
+        else{
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": ListSink with Non Null ColumnExprMap!!");
+            System.exit(0);
+        }
+
+    }
+
+    public String addSelectStatementToQuery(OperatorNode currentOperatorNode, String latestAncestorSchema, OperatorQuery currentOpQuery){
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query does not contain SELECT statement (needs to be added)...");
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Constructing SELECT statement columns...");
+        MyMap aMap = new MyMap();
+        String updatedSchemaString = extractColsFromTypeName(latestAncestorSchema, aMap, latestAncestorSchema, false);
+
+        String selectString = "";
+        List<ColumnTypePair> pairs = aMap.getColumnAndTypeList();
+        for(int i = 0; i < pairs.size(); i++){
+            if(i == pairs.size() - 1){
+                selectString = selectString + " " + pairs.get(i).getColumnName()+ " ";
+            }
+            else{
+                selectString = selectString + " " + pairs.get(i).getColumnName() + ",";
+            }
+
+            //Attempt to add used column if not existing
+            currentOpQuery.addUsedColumn(pairs.get(i).getColumnName(), currentOpQuery.getInputTables().get(0).getTableName().toLowerCase());
+        }
+
+        currentOpQuery.setLocalQueryString("select"+selectString+currentOpQuery.getLocalQueryString());
+        currentOpQuery.setExaremeQueryString("select"+selectString+currentOpQuery.getExaremeQueryString());
+
+        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+        return updatedSchemaString;
+
+    }
+
+    public void handleJoinKeys(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, OperatorNode fatherOperatorNode, OperatorNode otherFatherNode, List<String> joinColumns){
+
+            JoinOperator joinOp = (JoinOperator) currentOperatorNode.getOperator();
+            JoinDesc joinDesc = joinOp.getConf();
+
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing keys of Join...");
+            Map<Byte, String> keys = joinDesc.getKeysString();
+
+            if (keys != null) {
+                //TODO: HANDLE COLS WITH SAME NAME ON DIFFERENT TABLES
+
+                for (Map.Entry<Byte, String> entry : keys.entrySet()) {
+                    //System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Accessing keys of Inner Join...");
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: " + entry.getKey() + " : Value: " + entry.getValue());
+
+                    String[] parts = entry.getValue().split(" ");
+                    if(parts.length != 3){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Reading value info...Failed! Parts size: "+parts.length);
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts: "+parts);
+                        System.exit(0);
+                    }
+                    String columnName = parts[0];
+                    String columnType = "";
+                    if(parts[2].contains(")"))
+                        columnType = parts[2].replace(")", "");
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": ColumnType does not contain )");
+                        System.exit(0);
+                    }
+
+                    List<ColumnTypePair> allPairs = columnAndTypeMap.getColumnAndTypeList();
+
+                    //Located Value
+                    boolean valueLocated = false;
+                    String realValueName = "";
+                    for(ColumnTypePair p : allPairs){
+                        if(p.getColumnType().equals(columnType)) {
+                            if (p.getColumnName().equals(columnName)) { //Check for direct match
+                                valueLocated = true;
+                                realValueName = columnName;
+                                joinColumns.add(columnName);
+
+                                //Locate the father that last used the column
+                                String lastFather = "";
+                                boolean altAliasExists = false;
+
+                                List<StringParameter> altAliases = p.getAltAliasPairs();
+                                if (altAliases.size() > 0) {
+                                    for (StringParameter sP : altAliases) {
+                                        if (sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())) {
+                                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located Father of Used Column for Join Column - Father: " + fatherOperatorNode.getOperatorName());
+                                            lastFather = fatherOperatorNode.getOperatorName();
+                                            altAliasExists = true;
+                                            break;
+                                        } else if (sP.getParemeterType().equals(otherFatherNode.getOperatorName())) {
+                                            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located Father of Used Column for Join Column - Father: " + otherFatherNode.getOperatorName());
+                                            lastFather = otherFatherNode.getOperatorName();
+                                            altAliasExists = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (altAliasExists == false) {
+                                        System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Can't locate add JOIN COLUMN TO USED COLUMNS because AltAlias and Previous Father Entry does not exist!1");
+                                        System.exit(0);
+                                    }
+
+                                    //Add JOIN USED Column
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Adding used column for JoinQuery - Alias: " + p.getColumnName() + " - TableName: " + lastFather);
+                                    currentOpQuery.addUsedColumn(p.getColumnName(), lastFather);
+
+                                } else {
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Can't locate add JOIN COLUMN TO USED COLUMNS because AltAlias and Previous Father Entry does not exist!2");
+                                    System.exit(0);
+                                }
+                                break;
+                            } else {
+                                List<StringParameter> altAliases = p.getAltAliasPairs();
+                                if (altAliases != null) {
+                                    if (altAliases.size() > 0) {
+                                        for (StringParameter sP : altAliases) {
+                                            if (sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())) { //Check for possible match through father1
+                                                if (sP.getValue().equals(columnName)) {
+                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located match through: " + fatherOperatorNode.getOperatorName());
+                                                    realValueName = p.getColumnName();
+                                                    valueLocated = true;
+                                                    joinColumns.add(columnName);
+                                                    break;
+                                                }
+                                            } else if (sP.getParemeterType().equals(otherFatherNode.getOperatorName())) { //Check for possible match through father2
+                                                if (sP.getValue().equals(columnName)) {
+                                                    System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Located match through: " + otherFatherNode.getOperatorName());
+                                                    realValueName = p.getColumnName();
+                                                    valueLocated = true;
+                                                    joinColumns.add(columnName);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if(valueLocated == false){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Failed to locate the real alias of: "+columnName);
+                        System.exit(0);
+                    }
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real alias of: "+columnName+" is: "+realValueName);
+                    }
+
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Join Keys are null!");
+                System.exit(0);
+            }
+
+    }
+
+    public void checkForPossibleOpLinks(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, MyTable outputTable){
+
+        for (MyTable inputT : currentOpQuery.getInputTables()) {
+            boolean isRoot = false;
+            for (MyTable rootInputT : inputTables) {
+                if (rootInputT.getTableName().equals(inputT.getTableName())) {
+                    isRoot = true;
+                    break;
+                }
+            }
+            if(isRoot == false){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Creating new OpLink...");
+                OpLink operatorLink = new OpLink();
+                operatorLink.setContainerName("c0");
+                operatorLink.setFromTable("R_" + inputT.getTableName().toLowerCase() + "_0");
+                operatorLink.setToTable("R_" + outputTable.getTableName().toLowerCase() + "_0");
+
+                StringParameter sP = new StringParameter("table", inputT.getTableName());
+                NumParameter nP = new NumParameter("part", 0);
+
+                List<Parameter> opParams = new LinkedList<>();
+                opParams.add(sP);
+                opParams.add(nP);
+
+                operatorLink.setParameters(opParams);
+                opLinksList.add(operatorLink);
+
+
+            }
+        }
+
+    }
+
+    public void discoverOrderByKeys(OperatorNode currentOperatorNode, OperatorNode fatherOperatorNode, OperatorQuery currentOpQuery, String latestAncestorTableName1){
+
+        ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) currentOperatorNode.getOperator();
+        ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
+
+        if(reduceSinkDesc.getOrder() != null){
+            if((reduceSinkDesc.getOrder().contains("+")) || (reduceSinkDesc.getOrder().contains("-"))){
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": + and - exist! Order by statement exists!");
+                List<String> orderByCols = new LinkedList<>();
+                if(reduceSinkDesc.getKeyCols() != null) {
+                    ArrayList<ExprNodeDesc> exprCols = reduceSinkDesc.getKeyCols();
+                    if(exprCols.size() > 0){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols will be used to build order by clause!");
+                        if(exprCols.size() == reduceSinkDesc.getOrder().length()){
+
+                            String orderByString = " order by ";
+                            MyMap keysMap = new MyMap();
+                            String[] partsPairs = reduceSinkDesc.getKeyColString().split(",");
+                            if(partsPairs.length != exprCols.size()){
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": PartsPairs length and exprCols size ARE NOT equal! Error! partsPair.length="+partsPairs.length);
+                                System.exit(0);
+                            }
+
+                            for(String partPair : partsPairs){ //Add all keys to a map
+                                String[] parts = partPair.split(" ");
+                                String currentColName = "";
+                                String type = "";
+                                if(parts.length == 3){
+                                    currentColName = parts[0];
+                                    type = parts[2].replace(")", "");
+                                }
+                                else if(parts.length == 4){
+                                    currentColName = parts[1];
+                                    type = parts[3].replace(")", "");
+                                }
+                                else{
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Parts.length must be 3! Error! parts.length="+parts.length);
+                                    System.exit(0);
+                                }
+
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key: "+currentColName+" - Type: "+type);
+
+                                ColumnTypePair somePair = new ColumnTypePair(currentColName, type);
+
+                                keysMap.addPair(somePair);
+                            }
+
+                            //Use the map to locate the real aliases and form the Order by clause
+                            for(int i = 0; i < keysMap.getColumnAndTypeList().size(); i++){
+                                ColumnTypePair keyPair = keysMap.getColumnAndTypeList().get(i);
+
+                                String realAliasOfKey = "";
+                                boolean aliasFound = false;
+                                String fatherName = fatherOperatorNode.getOperatorName();
+                                String order = "";
+
+                                if(reduceSinkDesc.getOrder().toCharArray()[i] == '+'){
+                                    order = "ASC";
+                                }
+                                else if(reduceSinkDesc.getOrder().toCharArray()[i] == '-'){
+                                    order = "DESC";
+                                }
+                                else{
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Unknown symbol in order string (+/-) allowed only");
+                                    System.exit(0);
+                                }
+
+                                for(ColumnTypePair cP : columnAndTypeMap.getColumnAndTypeList()){
+                                    if(cP.getColumnType().equals(keyPair.getColumnType())){
+                                        if(cP.getColumnName().equals(keyPair.getColumnName())){
+                                            aliasFound = true;
+                                            realAliasOfKey = cP.getColumnName();
+                                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
+                                            break;
+                                        }
+                                        else{
+                                            if(cP.getAltAliasPairs() != null){
+                                                if(cP.getAltAliasPairs().size() > 0){
+                                                    for(StringParameter sP : cP.getAltAliasPairs()){
+                                                        if(sP.getParemeterType().equals(fatherName)){
+                                                            if(sP.getValue().equals(keyPair.getColumnName())){
+                                                                aliasFound = true;
+                                                                realAliasOfKey = cP.getColumnName();
+                                                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+"is: "+realAliasOfKey);
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if(aliasFound == true){
+                                                        break;
+                                                    }
+
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if(aliasFound == false){
+                                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real Alias of Key: "+keyPair.getColumnName()+" was never found! Error!");
+                                    System.exit(0);
+                                }
+
+                                if(i == keysMap.getColumnAndTypeList().size() - 1){
+                                    orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+" ");
+                                }
+                                else{
+                                    orderByString = orderByString.concat(" "+realAliasOfKey+" "+order+", ");
+                                }
+
+                                //Add used column order by
+                                currentOpQuery.addUsedColumn(realAliasOfKey, latestAncestorTableName1);
+                            }
+
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Formed ORDER BY string: "+orderByString);
+                            currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString()+" "+orderByString);
+                            currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString()+" "+orderByString);
+
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+
+                        }
+                        else{
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Key Cols And Order(+/-) string do not have the same size!");
+                            System.exit(0);
+                        }
+                    }
+                    else{
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
+                        System.exit(0);
+                    }
+                }
+                else{
+                    System.out.println(currentOperatorNode.getOperator().getOperatorId()+": No Key Cols exist!");
+                    System.exit(0);
+                }
+            }
+        }
+
+    }
+
+    public void discoverGroupByKeys(OperatorNode currentOperatorNode, OperatorNode fatherOperatorNode, OperatorQuery currentOpQuery, String latestAncestorTableName1, GroupByDesc groupByDesc){
+
+        List<String> groupByKeys = new LinkedList<>();
+        MyMap changeMap = new MyMap();
+        if(groupByDesc != null){
+            ArrayList<ExprNodeDesc> keys = groupByDesc.getKeys();
+            if (keys != null) {
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Keys: ");
+                for (ExprNodeDesc k : keys) {
+                    if (k != null) {
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\tKey: ");
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tName: " + k.getName());
+                        if (k.getCols() != null) {
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: " + k.getCols().toString());
+                            if(k.getCols().size() > 1){
+                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"Key for more than one column?! GROUP BY");
+                                System.exit(9);
+                            }
+                            else if(k.getCols().size() == 1){
+                                String col = k.getCols().get(0);
+                                //if(col.contains("KEY.")){
+                                //    col = col.replace("KEY.", "");
+                                //}
+                                //else if(col.contains("VALUE.")){
+                                //   col = col.replace("VALUE.", "");
+                                //}
+
+
+                                boolean fg = false;
+                                if(groupByKeys.size() == 0) groupByKeys.add(col);
+                                else {
+                                    for (String g : groupByKeys) {
+                                        if (g.equals(col)) {
+                                            fg = true;
+                                            break;
+                                        }
+                                    }
+                                    if (fg == false)
+                                        groupByKeys.add(col);
+                                }
+                            }
+                        } else {
+                            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": "+"\t\tCols: NULL");
+                        }
+                    }
+                }
+
+                List<String> realColumnAliases = new LinkedList<>();
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Finding real column Aliases for GroupBy Keys...");
+                for(String s : groupByKeys){
+                    boolean matchFound = false;
+                    List<ColumnTypePair> pairs = columnAndTypeMap.getColumnAndTypeList();
+                    for(ColumnTypePair c : pairs){
+                        if(c.getColumnName().equals(s)){
+                            realColumnAliases.add(c.getColumnName());
+                            matchFound = true;
+                            break;
+                        }
+                        else{
+                            List<StringParameter> altAliases = c.getAltAliasPairs();
+                            if(altAliases != null){
+                                if(altAliases.size() > 0){
+                                    for(StringParameter sP : altAliases){
+                                        if(sP.getParemeterType().equals(fatherOperatorNode.getOperatorName())){
+                                            if((sP.getValue().equals(s)) || ("KEY.".concat(sP.getValue()).equals(s))){
+                                                realColumnAliases.add(c.getColumnName());
+                                                matchFound = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if(matchFound == true){
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if(matchFound == false){
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match does not exist! For Group By Key: "+s);
+                    }
+                }
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Real GroupBy Keys: "+realColumnAliases.toString());
+
+                String expression = "";
+                int i = 0;
+                for(i=0; i < realColumnAliases.size(); i++){
+                    if(i == realColumnAliases.size() - 1){
+                        expression = expression.concat(" "+realColumnAliases.get(i));
+                    }
+                    else{
+                        expression = expression.concat(" "+realColumnAliases.get(i)+",");
+                    }
+                }
+
+                /*---Locate new USED Columns----*/
+                for(String s : realColumnAliases){
+                    currentOpQuery.addUsedColumn(s, latestAncestorTableName1);
+                }
+
+                currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString() + " group by "+expression);
+                currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString() + " group by "+expression);
+
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Query is currently: ["+currentOpQuery.getLocalQueryString()+"]");
+            }
+        }
+
+    }
+
+    public void initialiseNewQuery(OperatorQuery currentOpQuery, OperatorQuery newQuery, MyTable inputTable){
+
+        newQuery.setDataBasePath(currentDatabasePath);
+        newQuery.setLocalQueryString("");
+        newQuery.setExaremeQueryString("");
+        newQuery.addInputTable(inputTable);
+        newQuery.setAssignedContainer("c0");
+        newQuery.setLocalQueryString(" from "+inputTable.getTableName().toLowerCase());
+        newQuery.setExaremeQueryString(" from "+inputTable.getTableName().toLowerCase());
+
+    }
+
+    public void addWhereStatementToQuery(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String latestAncestorTableName1){
+
+        FilterOperator filtOp = (FilterOperator) currentOperatorNode.getOperator();
+        FilterDesc filterDesc = filtOp.getConf();
+
+        /*---Locate new USED columns---*/
+        List<String> predCols = filterDesc.getPredicate().getCols();
+        if (predCols != null) {
+            for (String p : predCols) {
+                currentOpQuery.addUsedColumn(p, latestAncestorTableName1);
+            }
+        }
+
+        ExprNodeDesc predicate = filterDesc.getPredicate();
+        if (predicate != null) {
+            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": " + "Extracting columns of predicate...");
+            List<String> filterColumns = predicate.getCols();
+
+            String predicateString = predicate.getExprString();
+
+            currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" where " + predicateString + " "));
+            currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" where " + predicateString + " "));
+
+        } else {
+            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Predicate is NULL");
+            System.exit(0);
+        }
+
+    }
+
+    public void addWhereStatementToQuery2(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String latestAncestorSchema, String latestAncestorTableName1){
+
+        MyMap ancestorMap = new MyMap();
+        latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, ancestorMap, latestAncestorSchema, false);
+
+        MyMap descendentMap = new MyMap();
+        String descendentSchema = extractColsFromTypeName(currentOperatorNode.getOperator().getSchema().toString(), descendentMap, currentOperatorNode.getOperator().getSchema().toString(), true);
+
+        if(ancestorMap.getColumnAndTypeList().size() != descendentMap.getColumnAndTypeList().size()){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Maps do not have equal size!");
+            System.exit(0);
+        }
+
+        FilterOperator filtOp = (FilterOperator) currentOperatorNode.getOperator();
+        FilterDesc filterDesc = filtOp.getConf();
+
+        List<String> usedCols = new LinkedList<>();
+        List<String> predCols = filterDesc.getPredicate().getCols();
+        ExprNodeDesc predicate = filterDesc.getPredicate();
+        String predicateString = predicate.getExprString();
+
+        for(int i = 0; i < ancestorMap.getColumnAndTypeList().size(); i++){
+            ColumnTypePair ancestorPair = ancestorMap.getColumnAndTypeList().get(i);
+            ColumnTypePair descendentPair = descendentMap.getColumnAndTypeList().get(i);
+
+            if(ancestorPair.getColumnType().equals(descendentPair.getColumnType())){
+                for(ColumnTypePair p : columnAndTypeMap.getColumnAndTypeList()){
+                    if(p.getColumnName().equals(ancestorPair.getColumnName())){
+                        p.addAltAlias(currentOperatorNode.getOperatorName(), descendentPair.getColumnName());
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match found! - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                        if(predCols != null){
+                            if(predCols.size() > 0){
+                                for(String c : predCols){
+                                    if(c.equals(descendentPair.getColumnName())){
+                                        if(predicateString != null){
+                                            if(predicateString.contains(c)){
+                                                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": This column also exists in the predicate! Replacing!");
+                                                predicateString = predicateString.replace(c, ancestorPair.getColumnName());
+                                            }
+                                        }
+
+                                        //Add used column
+                                        currentOpQuery.addUsedColumn(ancestorPair.getColumnName(), latestAncestorTableName1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Possible match Pair does not have same Type - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                System.exit(0);
+            }
+        }
+
+        if (predicateString != null) {
+            currentOpQuery.setLocalQueryString(currentOpQuery.getLocalQueryString().concat(" where " + predicateString + " "));
+            currentOpQuery.setExaremeQueryString(currentOpQuery.getExaremeQueryString().concat(" where " + predicateString + " "));
+
+        } else {
+            System.out.println(currentOperatorNode.getOperator().getOperatorId() + ": Predicate is NULL");
+            System.exit(0);
+        }
+
+    }
+
+    public void useSchemaToFillAliases(OperatorNode currentOperatorNode, String latestAncestorSchema){
+
+        MyMap ancestorMap = new MyMap();
+        latestAncestorSchema = extractColsFromTypeName(latestAncestorSchema, ancestorMap, latestAncestorSchema, false);
+
+        MyMap descendentMap = new MyMap();
+        String descendentSchema = extractColsFromTypeName(currentOperatorNode.getOperator().getSchema().toString(), descendentMap, currentOperatorNode.getOperator().getSchema().toString(), true);
+
+        if(ancestorMap.getColumnAndTypeList().size() != descendentMap.getColumnAndTypeList().size()){
+            System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Maps do not have equal size!");
+            System.exit(0);
+        }
+
+        for(int i = 0; i < ancestorMap.getColumnAndTypeList().size(); i++){
+            ColumnTypePair ancestorPair = ancestorMap.getColumnAndTypeList().get(i);
+            ColumnTypePair descendentPair = descendentMap.getColumnAndTypeList().get(i);
+
+            if(ancestorPair.getColumnType().equals(descendentPair.getColumnType())){
+                for(ColumnTypePair p : columnAndTypeMap.getColumnAndTypeList()){
+                    if(p.getColumnName().equals(ancestorPair.getColumnName())){
+                        p.addAltAlias(currentOperatorNode.getOperatorName(), descendentPair.getColumnName());
+                        System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Match found! - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                    }
+                }
+            }
+            else{
+                System.out.println(currentOperatorNode.getOperator().getOperatorId()+": Possible match Pair does not have same Type - Pair: "+ancestorPair.getColumnName()+" - "+descendentPair.getColumnName());
+                System.exit(0);
+            }
+        }
+
+    }
+
+    public String finaliseOutputTable(OperatorNode currentOperatorNode, OperatorQuery currentOpQuery, String stringToExtractFrom, String outputTableName, MyTable outputTable, List<FieldSchema> newCols){
+
+        MyMap someMap = new MyMap();
+
+        stringToExtractFrom = extractColsFromTypeName(stringToExtractFrom, someMap, stringToExtractFrom, false);
+
+        List<ColumnTypePair> pairsList = someMap.getColumnAndTypeList();
+        for(ColumnTypePair p : pairsList){
+            if(p.getColumnName().contains("BLOCK__OFFSET__INSIDE__FILE")){
+                continue;
+            }
+            else if(p.getColumnName().contains("INPUT__FILE__NAME")){
+                continue;
+            }
+            else if(p.getColumnName().contains("ROW__ID")){
+                continue;
+            }
+            else if(p.getColumnName().contains("rowid")){
+                continue;
+            }
+            else if(p.getColumnName().contains("bucketid")){
+                continue;
+            }
+
+            FieldSchema f = new FieldSchema();
+            f.setName(p.getColumnName());
+            f.setType(p.getColumnType());
+            newCols.add(f);
+        }
+
+        outputTable.setTableName(outputTableName);
+        outputTable.setAllCols(newCols);
+        outputTable.setHasPartitions(false);
+
+        currentOpQuery.setOutputTable(outputTable);
+        currentOpQuery.setExaremeOutputTableName("R_"+outputTable.getTableName().toLowerCase()+"_0");
+
+        return stringToExtractFrom;
+
+    }
+
+    /* Used to create an Exareme Table Definition either
+    from a Hive Table or a Hive Partition
+     */
 
     public String exaremeTableDefinition(MyTable someTable){
         String definition = "";
@@ -5329,13 +3832,34 @@ public class QueryBuilder {
                     definition = definition.concat("TEXT");
                 }
                 else if(type.contains("decimal")){
-                    definition = definition.concat("NUM");
+                    definition = definition.concat("DECIMAL(10,5)");
+                }
+                else if(type.contains("float")){
+                    definition = definition.concat("FLOAT");
                 }
                 else if(type.contains("char")){
                     definition = definition.concat("TEXT");
                 }
-                else if(type.contains("float")){
-                    definition = definition.concat("NUM");
+                else if(type.contains("varchar")){
+                    definition = definition.concat("TEXT");
+                }
+                else if(type.contains("date")){
+                    definition = definition.concat("DATE");
+                }
+                else if(type.contains("double")){
+                    definition = definition.concat("REAL");
+                }
+                else if(type.contains("double precision")){
+                    definition = definition.concat("REAL");
+                }
+                else if(type.contains("bigint")){
+                    definition = definition.concat("BIGINT");
+                }
+                else if(type.contains("smallint")){
+                    definition = definition.concat("SMALLINT");
+                }
+                else if(type.contains("tinyint")){
+                    definition = definition.concat("TINYINT");
                 }
                 else{
                     System.out.println("exaremeTableDefinition: Unsupported Hive Type! Type: "+type);
@@ -5352,16 +3876,37 @@ public class QueryBuilder {
                     definition = definition.concat("TEXT,");
                 }
                 else if(type.contains("decimal")){
-                    definition = definition.concat("NUM,");
+                    definition = definition.concat("DECIMAL(10,5),");
                 }
                 else if(type.contains("float")){
-                    definition = definition.concat("NUM,");
+                    definition = definition.concat("FLOAT,");
                 }
                 else if(type.contains("char")){
                     definition = definition.concat("TEXT,");
                 }
+                else if(type.contains("varchar")){
+                    definition = definition.concat("TEXT,");
+                }
+                else if(type.contains("date")){
+                    definition = definition.concat("DATE,");
+                }
+                else if(type.contains("double")){
+                    definition = definition.concat("REAL,");
+                }
+                else if(type.contains("double precision")){
+                    definition = definition.concat("REAL,");
+                }
+                else if(type.contains("bigint")){
+                    definition = definition.concat("BIGINT,");
+                }
+                else if(type.contains("smallint")){
+                    definition = definition.concat("SMALLINT,");
+                }
+                else if(type.contains("tinyint")){
+                    definition = definition.concat("TINYINT,");
+                }
                 else{
-                    System.out.println("exaremeTableDefinition: Unsupported Hive Type: "+type);
+                    System.out.println("exaremeTableDefinition: Unsupported Hive Type! Type: "+type);
                     System.exit(0);
                 }
             }
@@ -5393,10 +3938,34 @@ public class QueryBuilder {
                     definition = definition.concat("TEXT");
                 }
                 else if(type.contains("decimal")){
-                    definition = definition.concat("NUM");
+                    definition = definition.concat("DECIMAL(10,5)");
                 }
                 else if(type.contains("char")){
                     definition = definition.concat("TEXT");
+                }
+                else if(type.contains("varchar")){
+                    definition = definition.concat("TEXT");
+                }
+                else if(type.contains("date")){
+                    definition = definition.concat("DATE");
+                }
+                else if(type.contains("float")){
+                    definition = definition.concat("FLOAT,");
+                }
+                else if(type.contains("double")){
+                    definition = definition.concat("REAL");
+                }
+                else if(type.contains("double precision")){
+                    definition = definition.concat("REAL");
+                }
+                else if(type.contains("bigint")){
+                    definition = definition.concat("BIGINT");
+                }
+                else if(type.contains("smallint")){
+                    definition = definition.concat("SMALLINT");
+                }
+                else if(type.contains("tinyint")){
+                    definition = definition.concat("TINYINT");
                 }
                 else{
                     System.out.println("exaremeTableDefinition: Unsupported Hive Type! Type: "+type);
@@ -5418,8 +3987,32 @@ public class QueryBuilder {
                 else if(type.contains("char")){
                     definition = definition.concat("TEXT,");
                 }
+                else if(type.contains("varchar")){
+                    definition = definition.concat("TEXT,");
+                }
+                else if(type.contains("date")){
+                    definition = definition.concat("DATE,");
+                }
+                else if(type.contains("float")){
+                    definition = definition.concat("FLOAT,");
+                }
+                else if(type.contains("double")){
+                    definition = definition.concat("REAL,");
+                }
+                else if(type.contains("double precision")){
+                    definition = definition.concat("REAL,");
+                }
+                else if(type.contains("bigint")){
+                    definition = definition.concat("BIGINT,");
+                }
+                else if(type.contains("smallint")){
+                    definition = definition.concat("SMALLINT,");
+                }
+                else if(type.contains("tinyint")){
+                    definition = definition.concat("TINYINT,");
+                }
                 else{
-                    System.out.println("exaremeTableDefinition: Unsupported Hive Type: "+type);
+                    System.out.println("exaremeTableDefinition: Unsupported Hive Type! Type: "+type);
                     System.exit(0);
                 }
             }
@@ -5430,6 +4023,9 @@ public class QueryBuilder {
         return definition;
     }
 
+
+    /* Used by createCartesianCombinations
+     */
 
     public Integer[][] allUniqueCombinations(List<List<Integer>> listOfPartitionLists){ //[ [0,1], [0], [0,1,2] ] etc.
         int n = listOfPartitionLists.size();                                            //Credits to: http://stackoverflow.com/questions/9591561/java-cartesian-product-of-a-list-of-lists
@@ -5453,6 +4049,10 @@ public class QueryBuilder {
 
         return allCombinations;
     }
+
+    /*
+        Used to create CartesianCombination of Input Partitions
+     */
 
     public List<List<Integer>> createCartesianCombinationsOfInputs(List<MyTable> inputTables){
 
@@ -5531,7 +4131,12 @@ public class QueryBuilder {
 
     }
 
-    public List<AdpDBSelectOperator> translateToExaremeOps(){ //This method translated an OperatorQuery to An AdpDBSelectOperator
+    /*
+        The below method takes care of translating OperatorQueries to AdpDBSelectOperators
+        essentially being the last step before printing the Exareme Plan
+     */
+
+    public List<AdpDBSelectOperator> translateToExaremeOps(){
 
         LinkedHashMap<String, Integer> outputTablesWithInputParts = new LinkedHashMap<>();
 

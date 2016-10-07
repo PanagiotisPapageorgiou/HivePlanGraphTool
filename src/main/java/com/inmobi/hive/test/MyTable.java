@@ -106,17 +106,34 @@ public class MyTable { //Represents a Hive or Exareme Table
                 exaremeType = "TEXT";
             }
             else if(colType.contains("decimal")){
-                exaremeType = "NUM";
+                exaremeType = "DECIMAL(10,5)";
             }
             else if(colType.contains("char")){
                 exaremeType = "TEXT";
             }
             else if(colType.contains("float")){
-                exaremeType = "NUM";
+                exaremeType = "FLOAT";
             }
-            else{
-                System.out.println("createRootHiveTableDefinition: Unknown Hive Type: "+colType);
-                System.exit(0);
+            else if(colType.contains("varchar")){
+                exaremeType = "TEXT";
+            }
+            else if(colType.contains("date")){
+                exaremeType = "DATE";
+            }
+            else if(colType.contains("double")){
+                exaremeType = "REAL";
+            }
+            else if(colType.contains("double precision")){
+                exaremeType = "REAL";
+            }
+            else if(colType.contains("bigint")){
+                exaremeType = "BIGINT";
+            }
+            else if(colType.contains("smallint")){
+                exaremeType = "SMALLINT";
+            }
+            else if(colType.contains("tinyint")){
+                exaremeType = "TINYINT";
             }
 
             if(i == allCols.size() - 1){

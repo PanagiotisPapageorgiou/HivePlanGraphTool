@@ -552,31 +552,35 @@ public class HiveTestCluster {
                                             if(leaf != null){
                                                 if(leaf.getSchema() != null){
                                                     if(leaf.getSchema().toString().contains("col")){
-                                                        if(op.getSchema().toString().equals(leaf.getSchema().toString())){
-                                                            List<Operator<?>> children = new LinkedList<>();
-                                                            List<Operator<?>> parents = new LinkedList<>();
-                                                            if(op.getParentOperators() != null){
-                                                                for(Operator<?> e : op.getParentOperators()){
-                                                                    parents.add(e);
-                                                                }
-                                                            }
-                                                            if(parents.contains(leaf) == false){
-                                                                parents.add(leaf);
-                                                                op.setParentOperators(parents);
-                                                            }
-                                                            if(leaf.getChildOperators() != null){
-                                                                for(Operator<?> e : op.getChildOperators()){
-                                                                    children.add(e);
-                                                                }
-                                                            }
-                                                            if(children.contains(op) == false){
-                                                                children.add(op);
-                                                                leaf.setChildOperators(children);
-                                                            }
+                                                        if(op.getSchema().toString().equals(leaf.getSchema().toString())) {
+                                                            if ((op.getParentOperators() == null) || (op.getParentOperators().size() == 0)){
+                                                                if((leaf.getChildOperators() == null) || (leaf.getChildOperators().size() == 0)){ //This condition might seem double checking but it actually is important because it ensures 1-1 FS/TS connections
+                                                                    List<Operator<?>> children = new LinkedList<>();
+                                                                    List<Operator<?>> parents = new LinkedList<>();
+                                                                    if (op.getParentOperators() != null) {
+                                                                        for (Operator<?> e : op.getParentOperators()) {
+                                                                            parents.add(e);
+                                                                        }
+                                                                    }
+                                                                    if (parents.contains(leaf) == false) {
+                                                                        parents.add(leaf);
+                                                                        op.setParentOperators(parents);
+                                                                    }
+                                                                    if (leaf.getChildOperators() != null) {
+                                                                        for (Operator<?> e : op.getChildOperators()) {
+                                                                            children.add(e);
+                                                                        }
+                                                                    }
+                                                                    if (children.contains(op) == false) {
+                                                                        children.add(op);
+                                                                        leaf.setChildOperators(children);
+                                                                    }
 
-                                                            DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), op.getOperatorId(), "LEAF TO ROOT");
-                                                            exaremeGraph.addDirectedEdge(e);
-                                                            System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + op.getOperatorId());
+                                                                    DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), op.getOperatorId(), "LEAF TO ROOT");
+                                                                    exaremeGraph.addDirectedEdge(e);
+                                                                    System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + op.getOperatorId());
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
