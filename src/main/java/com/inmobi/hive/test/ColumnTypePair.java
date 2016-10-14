@@ -10,7 +10,7 @@ public class ColumnTypePair {
     String columnName;
     String columnType;
     String alternateAlias;
-    List<StringParameter> altAliasPairs;
+    List<StringParameter> altAliasPairs = new LinkedList<>();
     boolean hasAlt;
 
     public ColumnTypePair(String n, String t){
@@ -47,6 +47,28 @@ public class ColumnTypePair {
             StringParameter sP = new StringParameter(operator, alias);
             altAliasPairs.add(sP);
         }
+    }
+
+    public void modifyAltAlias(String operator, String oldAlias, String newAlias){
+
+        boolean exists = false;
+        if(altAliasPairs.size() > 0) {
+            for (StringParameter sP : altAliasPairs) {
+                if (sP.getParemeterType().equals(operator)) {
+                    if (sP.getValue().equals(oldAlias)) {
+                        sP.setValue(newAlias);
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if(exists == false){
+            System.out.println("modifyAltAlias: Can't locate Pair( "+operator+ ", "+oldAlias+" )");
+            System.exit(0);
+        }
+
     }
 
     public List<StringParameter> getAltAliasPairs() { return altAliasPairs; }

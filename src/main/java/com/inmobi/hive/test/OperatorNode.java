@@ -972,6 +972,17 @@ public class OperatorNode {
                                         }
                                     }
                                 }
+
+                                Map<Byte, String> keys2 = hashDesc.getKeysString();
+                                if (keys2 != null) {
+                                    outputFile.println("\t\t\t\tKeys (From getKeyString()): ");
+                                    outputFile.flush();
+                                    for (Map.Entry<Byte, String> entry : keys2.entrySet()) {
+                                        outputFile.println("\t\t\t\t\tKey: " + entry.getKey() + " : Value: " + entry.getValue());
+                                        outputFile.flush();
+                                    }
+                                }
+
                             }
                         }
                     } else {
@@ -1224,6 +1235,17 @@ public class OperatorNode {
                                     }
                                 }
                             }
+
+                            Map<Byte, String> keys2 = mapJoinDesc.getKeysString();
+                            if (keys2 != null) {
+                                outputFile.println("\t\t\t\tKeys (From getKeyString()): ");
+                                outputFile.flush();
+                                for (Map.Entry<Byte, String> entry : keys2.entrySet()) {
+                                    outputFile.println("\t\t\t\t\tKey: " + entry.getKey() + " : Value: " + entry.getValue());
+                                    outputFile.flush();
+                                }
+                            }
+
                         }
                     } else {
                         System.out.println("Operator instance and type do not match!");

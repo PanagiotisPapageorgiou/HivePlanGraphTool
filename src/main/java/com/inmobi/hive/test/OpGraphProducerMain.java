@@ -13,14 +13,16 @@ public class OpGraphProducerMain {
         String exaremeOpGraphFile = "src/main/resources/files/exaremeGraphsLog.txt";
         String executionResultsFile = "src/main/resources/files/resultsLog.txt";
         String exaremePlanFile = "src/main/resources/files/exaremePlan.json";
-        String exaremeMiniClusterIP = "192.168.1.3";
+        String exaremeMiniClusterIP = "192.168.1.6";
 
         int numberOfNodes = 1; //Number of Nodes in Cluster (numberOfDataNodes==NumberOfNodeManagers)
         int maxDynamicPartitions = 1000; //Total NumberOfPartitions in Cluster
         int maxDynamicPartitionsPerNode = 100; //Total NumberOfPartitions in Node
         boolean dynamicPartitionsEnabled = true; //Toggle dynamic partitioning
 
-        testCaseTool testTool = new testCaseTool(setupScript, tearDownScript, queryScript, "EXAREME");
+        String rootDirForHiveExaremeSession = "/tmp/adpHive/";
+
+        testCaseTool testTool = new testCaseTool(setupScript, tearDownScript, queryScript, "EXAREME", rootDirForHiveExaremeSession);
 
         try{
             System.out.println("Setup Cluster with DataNodes: "+numberOfNodes+" and NodeManagers: "+numberOfNodes+" and load tables...");

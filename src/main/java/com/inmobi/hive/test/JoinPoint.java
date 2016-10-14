@@ -3,7 +3,7 @@ package com.inmobi.hive.test;
 /**
  * Created by panos on 23/9/2016.
  */
-public class JoinPoint { //Helps connect two branches of Operator Trees
+public class JoinPoint { //Helps connect two branches of Operator Trees who link at JOIN
     String id;
     String createdById;
     String latestAncestorTableName;

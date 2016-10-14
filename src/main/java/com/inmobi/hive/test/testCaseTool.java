@@ -38,22 +38,31 @@ public class testCaseTool {
     private String tearDownScriptPath;
     private String queryScriptPath;
     private String flag;
+    private String rootDirForHiveExaremeSession;
     PrintWriter compileLogFile;
     PrintWriter resultsLogFile;
 
-    public testCaseTool(String s1, String s2, String s3, String f) {
+    public testCaseTool(String s1, String s2, String s3, String f, String hiveExaremeRootSessionPath) {
         this.setUpScriptPath = s1;
         this.tearDownScriptPath = s2;
         this.queryScriptPath = s3;
         this.flag = f;
         this.compileLogFile = null;
         this.resultsLogFile = null;
+        this.rootDirForHiveExaremeSession = hiveExaremeRootSessionPath;
     }
 
     public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeMiniClusterIP) throws Exception {
         this.testSuite = new HiveTestSuite(numberOfDatanodes, numberOfTaskTrackers);
         this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP);
         List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+
+        File rootFile = new File(rootDirForHiveExaremeSession);
+        if(rootFile.exists() == false) {
+            System.out.println("Creating session directory: "+rootFile.getPath());
+            rootFile.mkdirs();
+        }
+
     }
 
     public void tearDown() throws Exception {

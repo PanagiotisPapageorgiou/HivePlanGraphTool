@@ -38,7 +38,7 @@ public class OperatorQuery {
         exaremeOutputTableName = "";
         outputTable = new MyTable();
         inputTables = new LinkedList<>();
-        usedColumns = new MyMap();
+        usedColumns = new MyMap(false);
     }
 
     public void addUsedColumn(String c, String tableName){
@@ -90,14 +90,14 @@ public class OperatorQuery {
 
     public void addInputTable(MyTable n){
 
-        if(inputTables.size() > 0){
-            for(MyTable m : inputTables){
-                if(m.getTableName().equals(n.getTableName())) {
-                    if(m.getBelongingDataBaseName().equals(n.getBelongingDataBaseName()))
-                    return;
-                }
-            }
-        }
+        //if(inputTables.size() > 0){
+        //    for(MyTable m : inputTables){
+        //        if(m.getTableName().equals(n.getTableName())) {
+        //            if(m.getBelongingDataBaseName().equals(n.getBelongingDataBaseName()))
+        //            return;
+        //        }
+        //    }
+        //}
 
         inputTables.add(n);
 

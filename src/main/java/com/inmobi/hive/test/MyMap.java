@@ -15,9 +15,14 @@ import java.util.Map;
 
 public class MyMap {
     List<ColumnTypePair> columnAndTypeList;
+    boolean allowDuplicates = false;
 
-    public MyMap(){
+    public MyMap(boolean allowDups){
+
         columnAndTypeList = new LinkedList<>();
+
+        allowDuplicates = allowDups;
+
     }
 
     public List<ColumnTypePair> getColumnAndTypeList() { return columnAndTypeList; }
@@ -44,22 +49,26 @@ public class MyMap {
             return;
         }
 
-        for(ColumnTypePair pair : columnAndTypeList){
-            if(pair.getColumnName().equals(c.getColumnName())){
-                if(pair.getColumnType().equals(c.getColumnType())){
-                    exists = true;
-                    break;
+        if(allowDuplicates == false) {
+            for (ColumnTypePair pair : columnAndTypeList) {
+                if (pair.getColumnName().equals(c.getColumnName())) {
+                    if (pair.getColumnType().equals(c.getColumnType())) {
+                        exists = true;
+                        break;
+                    }
                 }
             }
-        }
 
-        if(exists == true){
-            System.out.println("PAIR: ("+c.getColumnName()+" , "+c.getColumnType()+" already exists!");
-            return;
+            if (exists == true) {
+                System.out.println("PAIR: (" + c.getColumnName() + " , " + c.getColumnType() + " already exists!");
+                return;
+            }
+
         }
 
         columnAndTypeList.add(c);
         System.out.println("PAIR: ("+c.getColumnName()+" , "+c.getColumnType()+" added successfully!");
+
     }
 
     public void printMap(){
