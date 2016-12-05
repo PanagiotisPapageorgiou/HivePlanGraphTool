@@ -175,7 +175,7 @@ public class MiniHS2 extends AbstractHiveService {
           fs.getUri().toString(), 1);
       // store the config in system properties
       mr.setupConfiguration(getHiveConf());
-      baseDfsDir =  new Path(new Path(fs.getUri()), "/base");
+      baseDfsDir =  new Path(new Path(fs.getUri()), "/tmp");
       numberDataNodes = numDataNodes;
       numberTaskTrackers = numTaskTrackers;
       System.out.println("\nMiniCluster has been set to run with - DataNodes: "+numberDataNodes+" TaskTrackers: "+numberTaskTrackers+"\n");
@@ -192,7 +192,67 @@ public class MiniHS2 extends AbstractHiveService {
         hs2Counter.incrementAndGet() + ";create=true";
 
     fs.mkdirs(baseDfsDir);
-    Path wareHouseDir = new Path(baseDfsDir, "warehouse");
+    Path wareHouseDir = new Path(baseDfsDir, "adpHive");
+    // Create warehouse with 777, so that user impersonation has no issues.
+    FileSystem.mkdirs(fs, wareHouseDir, FULL_PERM);
+
+    fs.mkdirs(wareHouseDir);
+    setWareHouseDir(wareHouseDir.toString());
+    System.setProperty(HiveConf.ConfVars.METASTORECONNECTURLKEY.varname, metaStoreURL);
+    hiveConf.setVar(HiveConf.ConfVars.METASTORECONNECTURLKEY, metaStoreURL);
+    // reassign a new port, just in case if one of the MR services grabbed the last one
+    setBinaryPort(MetaStoreUtils.findFreePort());
+    hiveConf.setVar(ConfVars.HIVE_SERVER2_THRIFT_BIND_HOST, getHost());
+    hiveConf.setIntVar(ConfVars.HIVE_SERVER2_THRIFT_PORT, getBinaryPort());
+    hiveConf.setIntVar(ConfVars.HIVE_SERVER2_THRIFT_HTTP_PORT, getHttpPort());
+
+    Path scratchDir = new Path(baseDfsDir, "scratch");
+    // Create root scratchdir with write all, so that user impersonation has no issues.
+    Utilities.createDirsWithPermission(hiveConf, scratchDir, WRITE_ALL_PERM, true);
+    System.setProperty(HiveConf.ConfVars.SCRATCHDIR.varname, scratchDir.toString());
+    hiveConf.setVar(ConfVars.SCRATCHDIR, scratchDir.toString());
+
+    String localScratchDir = baseDir.getPath() + File.separator + "scratch";
+    System.setProperty(HiveConf.ConfVars.LOCALSCRATCHDIR.varname, localScratchDir);
+    hiveConf.setVar(ConfVars.LOCALSCRATCHDIR, localScratchDir);
+  }
+
+  private MiniHS2(HiveConf hiveConf, boolean useMiniMR, boolean useMiniKdc,
+                  String serverPrincipal, String serverKeytab, boolean isMetastoreRemote, int numDataNodes, int numTaskTrackers, String baseF, String wareF) throws Exception {
+    super(hiveConf, "localhost", MetaStoreUtils.findFreePort(), MetaStoreUtils.findFreePort());
+    this.useMiniMR = useMiniMR;
+    this.useMiniKdc = useMiniKdc;
+    this.serverPrincipal = serverPrincipal;
+    this.serverKeytab = serverKeytab;
+    this.isMetastoreRemote = isMetastoreRemote;
+    baseDir = Files.createTempDir();
+    localFS = FileSystem.getLocal(hiveConf);
+    FileSystem fs;
+    if (useMiniMR) {
+      dfs = ShimLoader.getHadoopShims().getMiniDfs(hiveConf, numDataNodes, true, null);
+      fs = dfs.getFileSystem();
+      mr = ShimLoader.getHadoopShims().getMiniMrCluster(hiveConf, numTaskTrackers,
+              fs.getUri().toString(), 1);
+      // store the config in system properties
+      mr.setupConfiguration(getHiveConf());
+      baseDfsDir =  new Path(new Path(fs.getUri()), baseF);
+      numberDataNodes = numDataNodes;
+      numberTaskTrackers = numTaskTrackers;
+      System.out.println("\nMiniCluster has been set to run with - DataNodes: "+numberDataNodes+" TaskTrackers: "+numberTaskTrackers+"\n");
+    } else {
+      fs = FileSystem.getLocal(hiveConf);
+      baseDfsDir = new Path("file://"+ baseDir.toURI().getPath());
+    }
+    if (useMiniKdc) {
+      hiveConf.setVar(ConfVars.HIVE_SERVER2_KERBEROS_PRINCIPAL, serverPrincipal);
+      hiveConf.setVar(ConfVars.HIVE_SERVER2_KERBEROS_KEYTAB, serverKeytab);
+      hiveConf.setVar(ConfVars.HIVE_SERVER2_AUTHENTICATION, "KERBEROS");
+    }
+    String metaStoreURL =  "jdbc:derby:" + baseDir.getAbsolutePath() + File.separator + "test_metastore-" +
+            hs2Counter.incrementAndGet() + ";create=true";
+
+    fs.mkdirs(baseDfsDir);
+    Path wareHouseDir = new Path(baseDfsDir, wareF);
     // Create warehouse with 777, so that user impersonation has no issues.
     FileSystem.mkdirs(fs, wareHouseDir, FULL_PERM);
 
@@ -219,6 +279,10 @@ public class MiniHS2 extends AbstractHiveService {
 
   public MiniHS2(HiveConf hiveConf, int numDataNodes, int numTaskTrackers) throws Exception {
     this(hiveConf, false, numDataNodes, numTaskTrackers);
+  }
+
+  public MiniHS2(HiveConf hiveConf, boolean useMiniMR, int numDataNodes, int numTaskTrackers, String baseFolder, String warehouseF) throws Exception {
+    this(hiveConf, useMiniMR, false, null, null, false, numDataNodes, numTaskTrackers, baseFolder, warehouseF);
   }
 
   public MiniHS2(HiveConf hiveConf, boolean useMiniMR, int numDataNodes, int numTaskTrackers) throws Exception {

@@ -32,6 +32,7 @@ public class HiveTestSuite {
     private HiveTestCluster cluster;
     int numberOfDataNodes;
     int numberOfNodeManagers;
+    int exaNodes;
 
     public HiveTestSuite(int numData, int numManagers){
         numberOfDataNodes = numData;
@@ -39,13 +40,36 @@ public class HiveTestSuite {
     }
 
     public void createTestCluster() {
-        this.createTestCluster(false, 0 , 0, "");
+        this.createTestCluster(false, 0 , 0, "", "", 0 , 1);
     }
 
-    public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeIP) {
-        cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers, exaremeIP);
+    public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeIP, String typeOfCluster, int exaremeNodes, int numOfReducers) {
+
+        if(typeOfCluster.equals("EXAREME")){
+            cluster = new HiveTestCluster(1, 1, exaremeIP, exaremeNodes, numOfReducers);
+        }
+        else{
+            cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers, exaremeIP, exaremeNodes, numOfReducers);
+        }
+
         try {
             cluster.start(allowDynamicPartitioning, maxParts, maxPartsPerNode);
+        } catch (Exception e) {
+            throw new RuntimeException("Unable to start test cluster", e);
+        }
+    }
+
+    public void createTestCluster(boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeIP, String typeOfCluster, int exaremeNodes, int numOfReducers, String baseDir, String wareDir) {
+
+        if(typeOfCluster.equals("EXAREME")){
+            cluster = new HiveTestCluster(1, 1, exaremeIP, exaremeNodes, numOfReducers);
+        }
+        else{
+            cluster = new HiveTestCluster(numberOfDataNodes, numberOfNodeManagers, exaremeIP, exaremeNodes, numOfReducers);
+        }
+
+        try {
+            cluster.start(allowDynamicPartitioning, maxParts, maxPartsPerNode, baseDir, wareDir);
         } catch (Exception e) {
             throw new RuntimeException("Unable to start test cluster", e);
         }
@@ -63,14 +87,14 @@ public class HiveTestSuite {
     }
     
     public List<String> executeScript(String scriptFile) {
-        return executeScript(scriptFile, null, null, null, null, null, null);
+        return executeScript(scriptFile, null, null, null, null, null, null, null, null, null);
     }
     
     public List<String> executeScript(String scriptFile, Map<String, String> params) {
-        return executeScript(scriptFile, params, null, null, null, null, null);
+        return executeScript(scriptFile, params, null, null, null, null, null, null, null, null);
     }
     
-    public List<String> executeScript(String scriptFile, Map<String, String> params, List<String> excludes, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag) {
+    public List<String> executeScript(String scriptFile, Map<String, String> params, List<String> excludes, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, String madisPath, PrintWriter outputWriter, String caseLabel) {
         HiveScript hiveScript = new HiveScript(scriptFile, params, excludes);
         if (cluster == null) {
             throw new IllegalStateException("No active cluster to run script with");
@@ -81,7 +105,7 @@ public class HiveTestSuite {
         //}
         List<String> results = null;
         try {
-            results = cluster.executeStatements(hiveScript.getStatements(), compileLogFile, resultsLogFile, exaremePlanPath, flag);
+            results = cluster.executeStatements(hiveScript.getStatements(), compileLogFile, resultsLogFile, exaremePlanPath, flag, madisPath, outputWriter, caseLabel);
         } catch (HiveSQLException e) {
             throw new RuntimeException("Unable to execute script", e);
         }

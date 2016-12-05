@@ -25,6 +25,8 @@ public class MyTable { //Represents a Hive or Exareme Table
 
     List<MyTable> ancestorTables = new LinkedList<>();
 
+    String sqliteDefinition = "";
+
     //Handle Exareme Tables differently from Hive Tables
     boolean isRootInput = false;
     String rootHiveTableDefinition = "";
@@ -64,6 +66,8 @@ public class MyTable { //Represents a Hive or Exareme Table
         hasPartitions=false;
     }
 
+    public String getSqliteDefinition() { return sqliteDefinition;}
+
     public void addAncestorTable(MyTable table){
 
         if(ancestorTables.size() > 0){
@@ -88,6 +92,7 @@ public class MyTable { //Represents a Hive or Exareme Table
 
         rootHiveTableDefinition = "";
         rootHiveTableDefinition = "select ";
+        sqliteDefinition = "create table "+tableName.toLowerCase()+" (";
         int i = 0;
 
         for(FieldSchema f : allCols){
@@ -136,11 +141,13 @@ public class MyTable { //Represents a Hive or Exareme Table
                 exaremeType = "TINYINT";
             }
 
-            if(i == allCols.size() - 1){
+            if(i == allCols.size()  - 1){
                 columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+" ");
+                sqliteDefinition = sqliteDefinition.concat(colName+" "+exaremeType+" )");
             }
             else{
                 columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+",");
+                sqliteDefinition = sqliteDefinition.concat(colName+" "+exaremeType+" , ");
             }
 
             System.out.println("createRootHiveTableDefinition: Current columnsString: "+columnsString);

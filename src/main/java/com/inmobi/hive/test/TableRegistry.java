@@ -39,7 +39,7 @@ public class TableRegistry {
 
                         System.out.println("addEntry: TableScanOperator: "+operatorName+" is a new ROOT Operator using Table: "+regEntry.getAlias()+" ! Adding as altAlias in all columns...");
                         for(ColumnTypePair somePair : mapOfEntry.getColumnAndTypeList()){
-                            somePair.addAltAlias(operatorName, somePair.getColumnName());
+                            somePair.addAltAlias(operatorName, somePair.getColumnName(), false);
                         }
 
                         return;
@@ -56,7 +56,7 @@ public class TableRegistry {
         List<ColumnTypePair> entryMapList = entry.getColumnTypeMap().getColumnAndTypeList();
 
         for(ColumnTypePair pair : entryMapList){
-            pair.addAltAlias(operatorName, pair.getColumnName());
+            pair.addAltAlias(operatorName, pair.getColumnName(), false);
         }
 
         entries.add(entry);

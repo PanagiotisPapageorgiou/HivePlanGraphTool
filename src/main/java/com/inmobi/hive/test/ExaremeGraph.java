@@ -425,6 +425,54 @@ public class ExaremeGraph {
         return count;
     }
 
+    public int numOfMatchingExprs(OperatorNode op2, Map<Byte, List<ExprNodeDesc>> keysMap, Map<Byte, List<ExprNodeDesc>> keysMap2, MapJoinDesc mapDesc) {
+
+        System.out.println("Non null KEYS...comparing them...");
+
+        int matchingExps = 0;
+
+            System.out.println("Equal number of ExprNode Descs...OK");
+
+            for (Map.Entry<Byte, List<ExprNodeDesc>> entry1 : keysMap.entrySet()) {
+                List<ExprNodeDesc> colsList1 = entry1.getValue();
+                for (Map.Entry<Byte, List<ExprNodeDesc>> entry2 : keysMap2.entrySet()) {
+                    List<ExprNodeDesc> colsList2 = entry2.getValue();
+
+                    if (entry1.getKey().equals(entry2.getKey()) == false) continue;
+
+                    for (ExprNodeDesc exprNode1 : colsList1) {
+                        List<String> cols1 = exprNode1.getCols();
+                        for (ExprNodeDesc exprNode2 : colsList2) {
+                            List<String> cols2 = exprNode2.getCols();
+
+                            if (cols1.size() == cols2.size()) {
+                                boolean columnsMatch = true;
+                                int matchingCols = 0;
+
+                                for (String c : cols1) {
+                                    for (String c2 : cols2) {
+                                        if (c.equals(c2)) {
+                                            matchingCols++;
+                                        }
+                                    }
+                                }
+
+                                if (matchingCols == cols1.size()) {
+                                    matchingExps++;
+                                    System.out.println("Match between ExprNodeDesc made...#Matches: " + matchingExps);
+                                }
+                            }
+
+                        }
+                    }
+                }
+            }
+
+
+        return matchingExps;
+
+    }
+
     public void linkRootsAndLeaves() {
 
         System.out.println("Printing all leaves BEFORE LINK...");
@@ -754,11 +802,25 @@ public class ExaremeGraph {
         for (OperatorNode op : nodesList) {
             if (op.getOperator().getOperatorId().contains("MAPJOIN")) {
                 System.out.println("Found Operator: " + op.getOperator().getOperatorId());
+                String correctParentID = "";
                 List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> opParents = op.getOperator().getParentOperators();
+                int matchesFound = 0;
+                int numOfHashDummies = 0;
+                boolean found = false;
                 if (opParents != null) {
                     for (Operator<? extends OperatorDesc> o1 : opParents) {
                         if (o1 != null) {
                             if (o1.getOperatorId().contains("HASHTABLEDUMMY")) {
+                                numOfHashDummies++;
+                            }
+                        }
+                    }
+                    for (Operator<? extends OperatorDesc> o1 : opParents) {
+                        if (o1 != null) {
+                            if (o1.getOperatorId().contains("HASHTABLEDUMMY")) {
+
+                                int numOfParents = opParents.size();
+
                                 String arr[] = o1.getOperatorId().trim().split("[_ ]+");
                                 if (arr.length > 2) {
                                     System.out.println("linkMapJoins: More than 3 Tokens?!");
@@ -767,44 +829,280 @@ public class ExaremeGraph {
                                 int id = Integer.parseInt(arr[1]);
                                 id = id - 1;
                                 String newName = "HASHTABLESINK_" + String.valueOf(id);
-                                o1.setOperatorId(newName);
-                                System.out.println("Set as parent of: " + op.getOperator().getOperatorId() + " the Operator: " + o1.getOperatorId());
-                                boolean found = false;
-                                for (OperatorNode op2 : nodesList) {
-                                    if (op2.getOperator().getOperatorId().equals(newName)) {
-                                        System.out.println("Located: " + newName);
-                                        found = true;
-                                        List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> opChildren = op2.getOperator().getChildOperators();
-                                        if (opChildren != null) {
-                                            opChildren.add(op.getOperator());
-                                            op2.getOperator().setChildOperators(opChildren);
-                                            System.out.println("Set as child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
-                                        } else {
-                                            opChildren = new LinkedList<>();
-                                            opChildren.add(op.getOperator());
-                                            op2.getOperator().setChildOperators(opChildren);
-                                            System.out.println("Set as ONLY child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
+
+                                MapJoinOperator mapOp = (MapJoinOperator) op.getOperator();
+                                MapJoinDesc mapDesc = mapOp.getConf();
+                                Map<Byte, List<ExprNodeDesc>> keysMap = mapDesc.getKeys();
+
+                                    for(OperatorNode op2 : nodesList){ //First attempt to find a match with HashTable with no parents
+
+                                        System.out.println("Attempting link with Operator: "+op2.getOperatorName());
+
+                                        if(op2.getOperator() instanceof HashTableSinkOperator) {
+
+                                            if ((op2.getOperator().getChildOperators() == null) || (op2.getOperator().getChildOperators().size() == 0)) {
+
+                                                if ((op2.getOperator().getChildOperators() == null) || (op2.getOperator().getChildOperators().size() == 0)) {
+
+                                                    boolean readyForLink = false;
+
+                                                    System.out.println("Doesn't have children...OK!");
+
+                                                    HashTableSinkOperator hashOp = (HashTableSinkOperator) op2.getOperator();
+                                                    HashTableSinkDesc hashDesc = hashOp.getConf();
+
+                                                    Map<Byte, List<ExprNodeDesc>> keysMap2 = hashDesc.getKeys();
+
+                                                    if (keysMap.entrySet().size() == keysMap2.entrySet().size()) {
+                                                        System.out.println("KeyMaps are of equal size...OK!");
+
+                                                        boolean hasNullKeys = false;
+
+                                                        for (Map.Entry<Byte, String> entryKey1 : mapDesc.getKeysString().entrySet()) {
+                                                            if (entryKey1.getValue() == null) {
+                                                                hasNullKeys = true;
+                                                                break;
+                                                            }
+                                                        }
+
+                                                        boolean hasNullKeys2 = false;
+
+                                                        if (hasNullKeys) {
+
+                                                            for (Map.Entry<Byte, String> entryKey1 : hashDesc.getKeysString().entrySet()) {
+                                                                if (entryKey1.getValue() == null) {
+                                                                    hasNullKeys2 = true;
+                                                                    break;
+                                                                }
+                                                            }
+
+                                                        }
+
+                                                        if ((hasNullKeys) && (hasNullKeys2)) {
+                                                            System.out.println("NULL Keys...");
+                                                            readyForLink = true;
+                                                        } else {
+                                                            System.out.println("Non null KEYS...comparing them...");
+
+                                                            int numOfExprs1 = 0;
+                                                            int numOfExprs2 = 0;
+
+                                                            for (Map.Entry<Byte, List<ExprNodeDesc>> entry1 : keysMap.entrySet()) {
+                                                                for (ExprNodeDesc expr : entry1.getValue()) {
+                                                                    numOfExprs1++;
+                                                                }
+                                                            }
+
+                                                            for (Map.Entry<Byte, List<ExprNodeDesc>> entry1 : keysMap.entrySet()) {
+                                                                for (ExprNodeDesc expr : entry1.getValue()) {
+                                                                    numOfExprs2++;
+                                                                }
+                                                            }
+
+                                                            if (numOfExprs1 == numOfExprs2) {
+                                                                System.out.println("Equal number of ExprNode Descs...OK");
+
+                                                                int matchingExps = numOfMatchingExprs(op2, keysMap, keysMap2, mapDesc);
+
+                                                                if (matchingExps == numOfExprs1) {
+                                                                    System.out.println("Keys are equal...");
+                                                                    readyForLink = true;
+                                                                }
+
+                                                            }
+
+
+                                                        }
+
+                                                        if (readyForLink) {
+                                                            System.out.println("Leaf: " + op2.getOperator().getOperatorId() + " Matches with child: " + op.getOperator().getOperatorId());
+
+                                                            System.out.println("Set as parent of: " + op.getOperator().getOperatorId() + " the Operator: " + op2.getOperator().getOperatorId());
+
+                                                            List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> opChildren = op2.getOperator().getChildOperators();
+                                                            if (opChildren != null) {
+                                                                opChildren.add(op.getOperator());
+                                                                op2.getOperator().setChildOperators(opChildren);
+                                                                System.out.println("Set as child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
+                                                            } else {
+                                                                opChildren = new LinkedList<>();
+                                                                opChildren.add(op.getOperator());
+                                                                op2.getOperator().setChildOperators(opChildren);
+                                                                System.out.println("Set as ONLY child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
+                                                            }
+
+                                                            o1.setOperatorId(op2.getOperatorName());
+
+                                                            DirectedEdge newEdge = new DirectedEdge(op2.getOperator().getOperatorId(), op.getOperator().getOperatorId(), "? NO IDEA");
+
+                                                            addDirectedEdge(newEdge);
+
+                                                            matchesFound++;
+
+                                                            break;
+
+                                                        }
+                                                    }
+
+                                                }
+
+                                            }
                                         }
-                                        break;
+
                                     }
+
+                                    if(matchesFound < numOfHashDummies) { //Second chance with hashtable sinks with 1 parent
+                                        for (OperatorNode op2 : nodesList) {
+                                                if (op2.getOperator() instanceof HashTableSinkOperator) {
+                                                    System.out.println("Attempting link with Operator: "+op2.getOperatorName());
+                                                    if(op2.getOperator().getChildOperators().size() == 1){
+
+                                                        boolean readyForLink = false;
+
+                                                        boolean alreadyExistsAsChild = false;
+                                                        if(op2.getOperator().getChildOperators() != null){
+                                                            if(op2.getOperator().getChildOperators().size() == 1){
+                                                                for(Operator<?> c : op2.getOperator().getChildOperators()){
+                                                                    if(c.getOperatorId().equals(op.getOperatorName())){
+                                                                        alreadyExistsAsChild = true;
+                                                                        break;
+                                                                    }
+                                                                }
+
+                                                            }
+                                                        }
+
+                                                        if(alreadyExistsAsChild) continue;
+
+                                                        System.out.println("Doesn't have children...OK!");
+
+                                                        HashTableSinkOperator hashOp = (HashTableSinkOperator) op2.getOperator();
+                                                        HashTableSinkDesc hashDesc = hashOp.getConf();
+
+                                                        Map<Byte, List<ExprNodeDesc>> keysMap2 = hashDesc.getKeys();
+
+                                                        if(keysMap.entrySet().size() == keysMap2.entrySet().size()) {
+                                                            System.out.println("KeyMaps are of equal size...OK!");
+
+                                                            boolean hasNullKeys = false;
+
+                                                            for(Map.Entry<Byte, String> entryKey1 : mapDesc.getKeysString().entrySet()){
+                                                                if(entryKey1.getValue() == null){
+                                                                    hasNullKeys = true;
+                                                                    break;
+                                                                }
+                                                            }
+
+                                                            boolean hasNullKeys2 = false;
+
+                                                            if(hasNullKeys){
+
+                                                                for(Map.Entry<Byte, String> entryKey1 : hashDesc.getKeysString().entrySet()){
+                                                                    if(entryKey1.getValue() == null){
+                                                                        hasNullKeys2 = true;
+                                                                        break;
+                                                                    }
+                                                                }
+
+                                                            }
+
+                                                            if((hasNullKeys) && (hasNullKeys2)){
+                                                                System.out.println("NULL Keys...");
+                                                                readyForLink = true;
+                                                            }
+                                                            else {
+                                                                System.out.println("Non null KEYS...comparing them...");
+
+                                                                int numOfExprs1 = 0;
+                                                                int numOfExprs2 = 0;
+
+                                                                for(Map.Entry<Byte, List<ExprNodeDesc>> entry1 : keysMap.entrySet()){
+                                                                    for(ExprNodeDesc expr : entry1.getValue()){
+                                                                        numOfExprs1++;
+                                                                    }
+                                                                }
+
+                                                                for(Map.Entry<Byte, List<ExprNodeDesc>> entry1 : keysMap.entrySet()){
+                                                                    for(ExprNodeDesc expr : entry1.getValue()){
+                                                                        numOfExprs2++;
+                                                                    }
+                                                                }
+
+                                                                if (numOfExprs1 == numOfExprs2) {
+                                                                    System.out.println("Equal number of ExprNode Descs...OK");
+
+                                                                    int matchingExps = numOfMatchingExprs(op2, keysMap, keysMap2, mapDesc);
+
+                                                                    if (matchingExps == numOfExprs1) {
+                                                                        System.out.println("Keys are equal...");
+                                                                        readyForLink = true;
+                                                                    }
+
+                                                                }
+
+                                                            }
+
+                                                            if (readyForLink) {
+                                                                System.out.println("Leaf: " + op2.getOperator().getOperatorId() + " Matches with child: " + op.getOperator().getOperatorId());
+
+                                                                System.out.println("Set as parent of: " + op.getOperator().getOperatorId() + " the Operator: " + op2.getOperator().getOperatorId());
+
+                                                                matchesFound++;
+
+                                                                List<org.apache.hadoop.hive.ql.exec.Operator<? extends OperatorDesc>> opChildren = op2.getOperator().getChildOperators();
+                                                                if (opChildren != null) {
+                                                                    opChildren.add(op.getOperator());
+                                                                    op2.getOperator().setChildOperators(opChildren);
+                                                                    System.out.println("Set as child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
+                                                                } else {
+                                                                    opChildren = new LinkedList<>();
+                                                                    opChildren.add(op.getOperator());
+                                                                    op2.getOperator().setChildOperators(opChildren);
+                                                                    System.out.println("Set as ONLY child of: " + op2.getOperator().getOperatorId() + " the Operator: " + op.getOperator().getOperatorId());
+                                                                }
+
+                                                                o1.setOperatorId(op2.getOperatorName());
+
+                                                                DirectedEdge newEdge = new DirectedEdge(op2.getOperator().getOperatorId(), op.getOperator().getOperatorId(), "? NO IDEA");
+
+                                                                addDirectedEdge(newEdge);
+
+                                                                break;
+
+                                                            }
+                                                        }
+
+                                                    }
+
+                                                }
+                                            }
+                                        }
+
+                                if(matchesFound == numOfHashDummies){
+                                    found = true;
                                 }
-                                if (found == false) {
-                                    System.out.println("Operator: " + newName + " doesn't exist!");
-                                    System.exit(0);
-                                }
 
-
-                                DirectedEdge newEdge = new DirectedEdge(o1.getOperatorId(), op.getOperator().getOperatorId(), "? NO IDEA");
-
-                                addDirectedEdge(newEdge);
-
+                            }
+                            else if(o1.getOperatorId().contains("HASHTABLESINK")){
+                                continue;
                             }
                         }
                     }
+
+                    if (found == false) {
+                        System.out.println("Operator: " + op.getOperatorName() + " never found a match!");
+                        for(OperatorNode opNode : nodesList){
+                            opNode.printOperatorInstance(null);
+                        }
+                        System.exit(0);
+                    }
+
+
                 } else {
                     System.out.println("No MAPJOIN Parents?");
                     System.exit(1);
                 }
+
             }
         }
     }

@@ -77,13 +77,22 @@ public class MyMap {
         int k = 0;
         for(ColumnTypePair c : columnAndTypeList){
             if(c.hasAlternateAlias() == false) {
-                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAliases: NULL");
+                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Type: " + c.getColumnType()+" - AltAliases: NULL");
+                if(c.altCastColumnTypes.size() > 0){
+                    System.out.println("\t\t\tCastedInto: "+c.altCastColumnTypes.toString());
+                }
             }
             else{
-                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Entry: " + c.getColumnType()+" - AltAliases: ");
+                System.out.println("\t\tIndex: " + k + " - Column: " + c.getColumnName() + " - Type: " + c.getColumnType()+" - AltAliases: ");
+                if(c.altCastColumnTypes.size() > 0){
+                    System.out.println("\t\t\tCastedInto: "+c.altCastColumnTypes.toString());
+                }
+                if(c.parameterValues.size() > 0){
+                    System.out.println("\t\t\tParameters: "+c.getParameterValues().toString());
+                }
                 List<StringParameter> altAliases = c.getAltAliasPairs();
                 for(StringParameter sP : altAliases) {
-                    System.out.println("\t\t\tAltAlias - Operator: "+sP.getParemeterType()+" - Column: "+sP.getValue());
+                    System.out.println("\t\t\tAltAlias - Operator: "+sP.getParemeterType()+" - Column: "+sP.getValue()+" - Extra Value: "+sP.getExtraValue());
                 }
             }
             k++;

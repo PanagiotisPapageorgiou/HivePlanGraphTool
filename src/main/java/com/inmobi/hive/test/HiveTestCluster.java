@@ -73,18 +73,23 @@ public class HiveTestCluster {
     private HiveConf hiveConf;
     private int numberOfTaskTrackers; //NodeManagers in later versions
     private int numberOfDataNodes;
+    private int exaNodes;
+    private int numOfReducers = 1;
     PrintWriter clusterInfo = null;
     String currentDatabasePath;
     String exaremeMiniClusterIP;
+    String madis = "";
 
     //Used to assign Exareme Containers in RoundRobin fashion
     private int lastNodeAssigned = -1;
 
-    public HiveTestCluster(int numData, int numTasks, String exaremeIP){
+    public HiveTestCluster(int numData, int numTasks, String exaremeIP, int exaremeNodes, int numReducers){
+        exaNodes = exaremeNodes;
         currentDatabasePath = "";
         numberOfTaskTrackers = numTasks;
         numberOfDataNodes = numData;
         exaremeMiniClusterIP = exaremeIP;
+        numOfReducers = numReducers;
         File f = new File("src/main/resources/files/clusterInfo.txt");
         if(f.exists() && !f.isDirectory()) {
             f.delete();
@@ -109,6 +114,52 @@ public class HiveTestCluster {
         miniHS2 = new MiniHS2(hiveConf, true, numberOfDataNodes, numberOfTaskTrackers);
         confOverlay = new HashMap<String, String>();
         confOverlay.put(ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
+        confOverlay.put(ConfVars.HADOOPNUMREDUCERS.varname, Integer.toString(numOfReducers));
+        confOverlay.put(ConfVars.EXECPARALLEL.varname, "false");
+        if(dynamicPartitioning == true) {
+            confOverlay.put(ConfVars.DYNAMICPARTITIONING.varname, "true");
+            clusterInfo.println("dynamicPartitioning=true");
+            clusterInfo.flush();
+            clusterInfo.println("maxPartitions(total)="+maxParts);
+            clusterInfo.flush();
+            clusterInfo.println("maxPartitions(perNode)="+maxPartPerNode);
+            clusterInfo.flush();
+            confOverlay.put(ConfVars.DYNAMICPARTITIONINGMODE.varname, "nonstrict");
+            String maxPartitions = Integer.toString(maxParts);
+            String maxPartitionsNode = Integer.toString(maxPartPerNode);
+            confOverlay.put(ConfVars.DYNAMICPARTITIONMAXPARTS.varname, maxPartitions);
+            confOverlay.put(ConfVars.DYNAMICPARTITIONMAXPARTSPERNODE.varname, maxPartitionsNode);
+        }
+        else{
+            clusterInfo.println("dynamicPartitioning=false");
+            clusterInfo.flush();
+        }
+        confOverlay.put(MRConfig.FRAMEWORK_NAME, MRConfig.LOCAL_FRAMEWORK_NAME);
+
+        miniHS2.start(confOverlay);
+        fs = miniHS2.getDfs().getFileSystem();
+        SessionState ss = new SessionState(hiveConf);
+
+        SessionState.start(ss);
+
+        clusterInfo.println("NameNode Port: "+fs.getUri().getPort());
+        clusterInfo.flush();
+        clusterInfo.println("Exareme MiniCluster IP: "+exaremeMiniClusterIP);
+        clusterInfo.flush();
+        clusterInfo.println("Nodes: "+numberOfDataNodes);
+        clusterInfo.flush();
+
+    }
+
+    public void start(boolean dynamicPartitioning, int maxParts, int maxPartPerNode, String startFolder, String warehouseFolder) throws Exception {
+        Configuration conf = new Configuration();
+        hiveConf = new HiveConf(conf,
+                org.apache.hadoop.hive.ql.exec.CopyTask.class);
+        miniHS2 = new MiniHS2(hiveConf, true, numberOfDataNodes, numberOfTaskTrackers, startFolder, warehouseFolder);
+        confOverlay = new HashMap<String, String>();
+        confOverlay.put(ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
+        confOverlay.put(ConfVars.HADOOPNUMREDUCERS.varname, Integer.toString(numOfReducers));
+        confOverlay.put(ConfVars.EXECPARALLEL.varname, "false");
         if(dynamicPartitioning == true) {
             confOverlay.put(ConfVars.DYNAMICPARTITIONING.varname, "true");
             clusterInfo.println("dynamicPartitioning=true");
@@ -173,13 +224,15 @@ public class HiveTestCluster {
         }
     }
 
-    public List<String> executeStatements(List<String> statements, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag) throws HiveSQLException {
+    public List<String> executeStatements(List<String> statements, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, String madisPath, PrintWriter timesWriter, String caseLab) throws HiveSQLException {
         List<String> results = new LinkedList<String>();
+
+        madis = madisPath;
 
         long i = 1;
 
         for (String statement : statements) {
-            results.addAll(processStatement(statement, compileLogFile, resultsLogFile, exaremePlanPath, flag, i));
+            results.addAll(processStatement(statement, compileLogFile, resultsLogFile, exaremePlanPath, flag, i, timesWriter, caseLab));
             i++;
         }
 
@@ -188,11 +241,11 @@ public class HiveTestCluster {
 
     public int assignNextNode(){
 
-        if(numberOfDataNodes == 1){
+        if(exaNodes == 1){
             return 0;
         }
 
-        if(lastNodeAssigned == numberOfDataNodes - 1){
+        if(lastNodeAssigned == exaNodes - 1){
             return 0;
         }
         else{
@@ -541,44 +594,50 @@ public class HiveTestCluster {
         }
 
         if(previousFinalOperators != null){
+            boolean matchMade = false;
+            int matchesMade = 0;
             if(previousFinalOperators.size() > 0){
                 if(topOps != null){
                     if(topOps.size() > 0){
-                        for(Operator<?> op : topOps){
-                            if(op != null){
-                                if(op.getSchema() != null){
-                                    if(op.getSchema().toString().contains("col")){
-                                        for(Operator<?> leaf : previousFinalOperators){
-                                            if(leaf != null){
-                                                if(leaf.getSchema() != null){
-                                                    if(leaf.getSchema().toString().contains("col")){
-                                                        if(op.getSchema().toString().equals(leaf.getSchema().toString())) {
-                                                            if ((op.getParentOperators() == null) || (op.getParentOperators().size() == 0)){
-                                                                if((leaf.getChildOperators() == null) || (leaf.getChildOperators().size() == 0)){ //This condition might seem double checking but it actually is important because it ensures 1-1 FS/TS connections
-                                                                    List<Operator<?>> children = new LinkedList<>();
-                                                                    List<Operator<?>> parents = new LinkedList<>();
-                                                                    if (op.getParentOperators() != null) {
-                                                                        for (Operator<?> e : op.getParentOperators()) {
-                                                                            parents.add(e);
-                                                                        }
-                                                                    }
-                                                                    if (parents.contains(leaf) == false) {
-                                                                        parents.add(leaf);
-                                                                        op.setParentOperators(parents);
-                                                                    }
-                                                                    if (leaf.getChildOperators() != null) {
-                                                                        for (Operator<?> e : op.getChildOperators()) {
-                                                                            children.add(e);
-                                                                        }
-                                                                    }
-                                                                    if (children.contains(op) == false) {
-                                                                        children.add(op);
-                                                                        leaf.setChildOperators(children);
-                                                                    }
 
-                                                                    DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), op.getOperatorId(), "LEAF TO ROOT");
-                                                                    exaremeGraph.addDirectedEdge(e);
-                                                                    System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + op.getOperatorId());
+                        if(topOps.size() == previousFinalOperators.size()) {
+                            for (Operator<?> op : topOps) {
+                                if (op != null) {
+                                    if (op.getSchema() != null) {
+                                        if (op.getSchema().toString().contains("_col")) {
+                                            for (Operator<?> leaf : previousFinalOperators) {
+                                                if (leaf != null) {
+                                                    if (leaf.getSchema() != null) {
+                                                        if (leaf.getSchema().toString().contains("_col")) {
+                                                            if (op.getSchema().toString().equals(leaf.getSchema().toString())) {
+                                                                if ((op.getParentOperators() == null) || (op.getParentOperators().size() == 0)) {
+                                                                    if ((leaf.getChildOperators() == null) || (leaf.getChildOperators().size() == 0)) { //This condition might seem double checking but it actually is important because it ensures 1-1 FS/TS connections
+                                                                        matchesMade++;
+                                                                        List<Operator<?>> children = new LinkedList<>();
+                                                                        List<Operator<?>> parents = new LinkedList<>();
+                                                                        if (op.getParentOperators() != null) {
+                                                                            for (Operator<?> e : op.getParentOperators()) {
+                                                                                parents.add(e);
+                                                                            }
+                                                                        }
+                                                                        if (parents.contains(leaf) == false) {
+                                                                            parents.add(leaf);
+                                                                            op.setParentOperators(parents);
+                                                                        }
+                                                                        if (leaf.getChildOperators() != null) {
+                                                                            for (Operator<?> e : op.getChildOperators()) {
+                                                                                children.add(e);
+                                                                            }
+                                                                        }
+                                                                        if (children.contains(op) == false) {
+                                                                            children.add(op);
+                                                                            leaf.setChildOperators(children);
+                                                                        }
+
+                                                                        DirectedEdge e = new DirectedEdge(leaf.getOperatorId(), op.getOperatorId(), "LEAF TO ROOT");
+                                                                        exaremeGraph.addDirectedEdge(e);
+                                                                        System.out.println("Added Edge from Leaf: " + leaf.getOperatorId() + " to Root: " + op.getOperatorId());
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -590,9 +649,11 @@ public class HiveTestCluster {
                                 }
                             }
                         }
+
                     }
                 }
             }
+
         }
 
         if(alreadyVisited == false)
@@ -1835,7 +1896,7 @@ public class HiveTestCluster {
         }
         else{
             //Build Queries for Exareme Operators
-            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions, currentDatabasePath);
+            QueryBuilder queryBuilder = new QueryBuilder(exaremeGraphSimpler, inputTables, inputPartitions, outputTables, outputPartitions, currentDatabasePath, fs, madis);
             queryBuilder.createExaOperators(outputFile);
 
             //Create AdpDBSelectOperators
@@ -1889,7 +1950,7 @@ public class HiveTestCluster {
                 finalExaOps.add(finalOp);
             }
 
-            if(numberOfDataNodes > 1) {
+            if(exaNodes > 1) {
                 System.out.println("-----Round Robin Assignment of Containers for OpLinks------");
                 for(OpLink aLink : opLinks){
 
@@ -1919,12 +1980,12 @@ public class HiveTestCluster {
             //Build Containers for Exareme Plan
             List<Container> containers = new LinkedList<>();
 
-            if(numberOfDataNodes == 1) {
+            if(exaNodes == 1) {
                 Container singleNode = new Container("c0", exaremeMiniClusterIP + "_container_" + exaremeMiniClusterIP, 1098, 8088);
                 containers.add(singleNode);
             }
             else{
-                for(int c = 0; c < numberOfDataNodes; c++){
+                for(int c = 0; c < exaNodes; c++){
                     Container node;
                     if(c == 0) {
                         node = new Container("c" + new String(Integer.toString(0)), exaremeMiniClusterIP + "_container_" + exaremeMiniClusterIP, 1098, 8088);
@@ -2081,7 +2142,38 @@ public class HiveTestCluster {
     /*-----------5) Exit                                          */
 
 
-    private List<String> processStatement(String statement, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, long i) {
+    public void printCaseDetails(String flag, PrintWriter outputWriter, int exaNodes, String caseLabel, String query, long startTime, long endTime){
+
+        if(outputWriter != null) {
+            outputWriter.println("\n---------------------------------------------\n");
+            outputWriter.flush();
+            if(flag == null){
+                outputWriter.println("Flag: NULL (HIVE)");
+                outputWriter.flush();
+            }
+            else{
+                outputWriter.println("Flag: " + flag);
+                outputWriter.flush();
+            }
+            outputWriter.println("Hive Nodes: " + numberOfDataNodes);
+            outputWriter.flush();
+            outputWriter.println("Exareme Nodes: " + exaNodes);
+            outputWriter.flush();
+            if(caseLabel != null){
+                outputWriter.println("Case Label: " + caseLabel);
+                outputWriter.flush();
+            }
+            if(query != null){
+                outputWriter.println("Query: " + query);
+                outputWriter.flush();
+            }
+            outputWriter.println("Time Taken: " + (endTime - startTime));
+            outputWriter.flush();
+        }
+
+    }
+
+    private List<String> processStatement(String statement, PrintWriter compileLogFile, PrintWriter resultsLogFile, String exaremePlanPath, String flag, long i, PrintWriter outputWriter, String caseLabel) {
         List<String> results = new LinkedList<String>();
         String[] tokens = statement.trim().split("\\s+");
         CommandProcessor proc = null;
@@ -2099,9 +2191,20 @@ public class HiveTestCluster {
         }
         try {
 
+            System.out.println("STATEMENT ARGUMENTS: Flag: "+flag + " - ExaNodes: " + exaNodes + " - Label: " + caseLabel);
             if((flag == null) || ((flag != null) && (!flag.equals("EXAREME")))){ //Normal Hive Statement
                 System.out.println("\n\nExecuting Query Normally!\nStatement:["+statement+"]\n\n");
+
+                //StartTime
+                long startTime = System.currentTimeMillis();
+
+
                 proc.run(statement);
+
+                long endTime = System.currentTimeMillis();
+
+                printCaseDetails(flag, outputWriter, exaNodes, caseLabel, statement, startTime, endTime);
+
                 if (proc instanceof org.apache.hadoop.hive.ql.Driver) {
                     ((Driver) proc).setMaxRows(1000000); /* Set the number of rows returned by getResults */
                     ((Driver) proc).getResults(results);
@@ -2113,6 +2216,7 @@ public class HiveTestCluster {
                         resultsLogFile.flush();
                         resultsLogFile.println("\tResults: ");
                         resultsLogFile.flush();
+                        resultsLogFile.println("\tTime: "+ (endTime - startTime));
                         for(String s : results){
                             resultsLogFile.println("\t\t"+s);
                             resultsLogFile.flush();
@@ -2145,6 +2249,9 @@ public class HiveTestCluster {
                     if(choice == 1){
 
                         System.out.println("\nCompiling and Extracting OperatorGraph!\n");
+
+                        long startTime = System.currentTimeMillis();
+
                         if(proc instanceof org.apache.hadoop.hive.ql.Driver){
                             ((Driver) proc).compile(statement, true);
                             org.apache.hadoop.hive.ql.QueryPlan queryPlan = ((Driver) proc).getPlan();
@@ -2311,6 +2418,10 @@ public class HiveTestCluster {
 
                             System.out.println("\n\n\n");
 
+                            long endTime = System.currentTimeMillis();
+
+                            printCaseDetails(flag, outputWriter, exaNodes, caseLabel, statement, startTime, endTime);
+
                             String statement2 = "explain ".concat(statement);
                             proc.run(statement2);
 
@@ -2336,7 +2447,15 @@ public class HiveTestCluster {
                     }
                     else if(choice == 2){
                         System.out.println("\n\nExecuting Query Normally!\nStatement:["+statement+"]\n\n");
+
+                        long startTime = System.currentTimeMillis();
+
                         proc.run(statement);
+
+                        long endTime = System.currentTimeMillis();
+
+                        printCaseDetails(flag, outputWriter, exaNodes, caseLabel, statement, startTime, endTime);
+
                         if (proc instanceof org.apache.hadoop.hive.ql.Driver) {
                             ((Driver) proc).setMaxRows(1000000); /* Set the number of rows returned by getResults */
                             ((Driver) proc).getResults(results);

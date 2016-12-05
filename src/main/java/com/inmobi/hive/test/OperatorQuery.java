@@ -1,6 +1,7 @@
 package com.inmobi.hive.test;
 
 import madgik.exareme.common.app.engine.AdpDBSelectOperator;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.io.PrintWriter;
 import java.util.LinkedList;
@@ -43,6 +44,8 @@ public class OperatorQuery {
 
     public void addUsedColumn(String c, String tableName){
 
+        if(tableName == null) return;
+
         List<ColumnTypePair> usedColumnList = usedColumns.getColumnAndTypeList();
 
         if(usedColumnList.size() > 0){
@@ -55,8 +58,54 @@ public class OperatorQuery {
             }
         }
 
-        ColumnTypePair pair = new ColumnTypePair(c, tableName);
-        usedColumns.addPair(pair);
+        boolean existsAsInput = false;
+        MyTable targetInput = new MyTable();
+        for(MyTable inputT : inputTables){
+            if(inputT.getTableName().toLowerCase().equals(tableName.toLowerCase())){
+                existsAsInput = true;
+                targetInput = inputT;
+                break;
+            }
+        }
+
+        if(existsAsInput == false){
+            if( ( (c.contains("agg_")) && (c.contains("_col")) ) == false){
+                System.out.println("addNewColumn: Attempt to add pair (" + c + " , " + tableName + ") fails because OpQuery does not have input table: " + tableName);
+                return;
+            }
+            else{
+                ColumnTypePair pair = new ColumnTypePair(c, tableName.toLowerCase());
+                usedColumns.addPair(pair);
+                System.out.println("addUsedColumn: ("+c+" , "+tableName+")");
+                return;
+            }
+        }
+
+        boolean colExistsInTarget = false;
+        for(FieldSchema f : targetInput.getAllCols()){
+            if(f.getName().equals(c)){
+                colExistsInTarget = true;
+                break;
+            }
+        }
+
+        if(colExistsInTarget == false){ //Attempt auto correct
+            for(MyTable inputT : inputTables){
+                for(FieldSchema f : inputT.getAllCols()){
+                    if(f.getName().equals(c)){
+                        ColumnTypePair pair = new ColumnTypePair(c, inputT.getTableName().toLowerCase());
+                        usedColumns.addPair(pair);
+                        System.out.println("addUsedColumn: ("+c+" , "+tableName+")");
+                    }
+                }
+            }
+        }
+        else{
+            ColumnTypePair pair = new ColumnTypePair(c, tableName.toLowerCase());
+            usedColumns.addPair(pair);
+            System.out.println("addUsedColumn: ("+c+" , "+tableName+")");
+        }
+
 
     }
 

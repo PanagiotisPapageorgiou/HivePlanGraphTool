@@ -40,6 +40,9 @@ public class MyPartition {
     String rootHiveLocationPath = "";
     List<String> secondaryNeededQueries = new LinkedList<>(); //Extra queries needed to properly transform Hive Partition to Exareme Partition
 
+
+    String sqliteDefinition = "";
+
     public MyPartition(){
         belongingDatabase = null;
         belongingTable = null;
@@ -61,12 +64,16 @@ public class MyPartition {
 
     public List<String> getSecondaryNeededQueries() { return secondaryNeededQueries; }
 
+    public String getSqliteDefinition() { return sqliteDefinition;}
+
     public void createRootHiveTableDefinition(){
         String columnsString = "";
         String columnsString2 = "";
 
         rootHiveTableDefinition = "";
         rootHiveTableDefinition = "select ";
+        sqliteDefinition = "create table "+belongingTable.toLowerCase()+" (";
+
         int i = 0;
 
         List<FieldSchema> fieldsAndPartitionColumns = new LinkedList<>();
@@ -131,9 +138,11 @@ public class MyPartition {
 
             if(i == allFields.size() - 1){
                 columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+" ");
+                sqliteDefinition = sqliteDefinition.concat(colName+" "+exaremeType+" )");
             }
             else{
                 columnsString = columnsString.concat(" "+"cast("+arithmeticName+" as "+exaremeType+") as "+colName+",");
+                sqliteDefinition = sqliteDefinition.concat(colName+" "+exaremeType+" , ");
             }
 
             System.out.println("createRootHiveTableDefinition: Current columnsString: "+columnsString);

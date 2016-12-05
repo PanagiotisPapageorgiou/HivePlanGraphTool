@@ -6,9 +6,8 @@
 package com.inmobi.hive.test;
 
 import com.inmobi.hive.test.HiveTestSuite;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.PrintWriter;
+
+import java.io.*;
 import java.util.List;
 import java.util.Map;
 
@@ -38,11 +37,16 @@ public class testCaseTool {
     private String tearDownScriptPath;
     private String queryScriptPath;
     private String flag;
+    private String timesFilePath;
     private String rootDirForHiveExaremeSession;
+    private PrintWriter outputWriter;
     PrintWriter compileLogFile;
     PrintWriter resultsLogFile;
+    int exaremeNodes;
 
-    public testCaseTool(String s1, String s2, String s3, String f, String hiveExaremeRootSessionPath) {
+    String madisPath = null;
+
+    public testCaseTool(String s1, String s2, String s3, String f, String hiveExaremeRootSessionPath, String madisP, String timesForQueries) {
         this.setUpScriptPath = s1;
         this.tearDownScriptPath = s2;
         this.queryScriptPath = s3;
@@ -50,17 +54,95 @@ public class testCaseTool {
         this.compileLogFile = null;
         this.resultsLogFile = null;
         this.rootDirForHiveExaremeSession = hiveExaremeRootSessionPath;
+        this.madisPath = madisP;
+        timesFilePath = timesForQueries;
+
+        try {
+            outputWriter = new PrintWriter(new BufferedWriter(new FileWriter(timesFilePath, true)));
+        } catch (IOException e) {
+            System.out.println("Exception creating new PrintWriter..."+e.getMessage());
+            System.exit(0);
+        }
+
     }
 
-    public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeMiniClusterIP) throws Exception {
-        this.testSuite = new HiveTestSuite(numberOfDatanodes, numberOfTaskTrackers);
-        this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP);
-        List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+    public testCaseTool(String s1, String s2, String s3, String f, int size) {
+        this.setUpScriptPath = s1;
+        this.tearDownScriptPath = s2;
+        this.queryScriptPath = s3;
+        this.flag = f;
+        this.compileLogFile = null;
+        this.resultsLogFile = null;
 
-        File rootFile = new File(rootDirForHiveExaremeSession);
-        if(rootFile.exists() == false) {
-            System.out.println("Creating session directory: "+rootFile.getPath());
-            rootFile.mkdirs();
+        File timesFile = new File(timesFilePath);
+
+        if(size == 1){
+
+        }
+        else if(size == 10){
+
+        }
+        else if(size == 50){
+
+        }
+        else{
+
+        }
+
+    }
+
+    public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeMiniClusterIP, String exaremeMode, int exaNodes, int numOfReducers, String baseDir, String warehouseDir) throws Exception {
+
+        if(exaremeMode.equals("EXAREME")){
+            this.testSuite = new HiveTestSuite(1, 1);
+            this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP, "EXAREME", exaNodes, numOfReducers, baseDir, warehouseDir);
+            List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+
+            File rootFile = new File(rootDirForHiveExaremeSession);
+            if(rootFile.exists() == false) {
+                System.out.println("Creating session directory: "+rootFile.getPath());
+                rootFile.mkdirs();
+            }
+
+        }
+        else{
+            this.testSuite = new HiveTestSuite(numberOfDatanodes, numberOfTaskTrackers);
+            this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP, "HIVE", 0, numOfReducers, baseDir, warehouseDir);
+            List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+
+            File rootFile = new File(rootDirForHiveExaremeSession);
+            if(rootFile.exists() == false) {
+                System.out.println("Creating session directory: "+rootFile.getPath());
+                rootFile.mkdirs();
+            }
+        }
+
+    }
+
+    public void setUp(int numberOfDatanodes, int numberOfTaskTrackers, boolean allowDynamicPartitioning, int maxParts, int maxPartsPerNode, String exaremeMiniClusterIP, String exaremeMode, int exaNodes, int numOfReducers) throws Exception {
+
+        if(exaremeMode.equals("EXAREME")){
+            this.testSuite = new HiveTestSuite(1, 1);
+            this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP, "EXAREME", exaNodes, numOfReducers);
+            List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+
+            File rootFile = new File(rootDirForHiveExaremeSession);
+            if(rootFile.exists() == false) {
+                System.out.println("Creating session directory: "+rootFile.getPath());
+                rootFile.mkdirs();
+            }
+
+        }
+        else{
+            this.testSuite = new HiveTestSuite(numberOfDatanodes, numberOfTaskTrackers);
+            this.testSuite.createTestCluster(allowDynamicPartitioning, maxParts, maxPartsPerNode, exaremeMiniClusterIP, "HIVE", 0, numOfReducers);
+            List results = this.testSuite.executeScript(this.setUpScriptPath, (Map)null);
+
+            File rootFile = new File(rootDirForHiveExaremeSession);
+            if(rootFile.exists() == false) {
+                System.out.println("Creating session directory: "+rootFile.getPath());
+                rootFile.mkdirs();
+            }
         }
 
     }
@@ -70,7 +152,7 @@ public class testCaseTool {
         this.testSuite.shutdownTestCluster();
     }
 
-    public void runQueryScript(String compileLogPath, String resultsLogPath, String exaremePlanPath) throws Throwable {
+    public void runQueryScript(String compileLogPath, String resultsLogPath, String exaremePlanPath, String caseLabel) throws Throwable {
         File f = new File(compileLogPath);
         if(f.exists() && !f.isDirectory()) {
             f.delete();
@@ -95,7 +177,37 @@ public class testCaseTool {
             throw new RuntimeException("Failed to open FileOutputStream for outputQuery.txt", var8);
         }
 
-        this.testSuite.executeScript(this.queryScriptPath, (Map)null, (List)null, compileLogFile, resultsLogFile, exaremePlanPath, this.flag);
+        this.testSuite.executeScript(this.queryScriptPath, (Map)null, (List)null, compileLogFile, resultsLogFile, exaremePlanPath, this.flag, this.madisPath, outputWriter, caseLabel);
+        compileLogFile.close();
+        resultsLogFile.close();
+    }
+
+    public void runOtherScript(String compileLogPath, String resultsLogPath, String exaremePlanPath, String caseLabel, String otherScript) throws Throwable {
+        File f = new File(compileLogPath);
+        if(f.exists() && !f.isDirectory()) {
+            f.delete();
+        }
+
+        PrintWriter compileLogFile;
+        try {
+            compileLogFile = new PrintWriter(f);
+        } catch (FileNotFoundException var9) {
+            throw new RuntimeException("Failed to open FileOutputStream for outputQuery.txt", var9);
+        }
+
+        File f2 = new File(resultsLogPath);
+        if(f2.exists() && !f2.isDirectory()) {
+            f2.delete();
+        }
+
+        PrintWriter resultsLogFile;
+        try {
+            resultsLogFile = new PrintWriter(f2);
+        } catch (FileNotFoundException var8) {
+            throw new RuntimeException("Failed to open FileOutputStream for outputQuery.txt", var8);
+        }
+
+        this.testSuite.executeScript(otherScript, (Map)null, (List)null, compileLogFile, resultsLogFile, exaremePlanPath, this.flag, this.madisPath, outputWriter, caseLabel);
         compileLogFile.close();
         resultsLogFile.close();
     }
@@ -107,6 +219,10 @@ public class testCaseTool {
 
         if(this.resultsLogFile != null) {
             this.resultsLogFile.close();
+        }
+
+        if(this.outputWriter != null) {
+            this.outputWriter.close();
         }
 
 
